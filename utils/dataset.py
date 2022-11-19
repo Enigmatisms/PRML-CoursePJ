@@ -51,10 +51,6 @@ class CustomDataSet(data.Dataset):
         tensor_label = torch.from_numpy(raw_label).to(self.dev)
         return tensor_data, tensor_label
 
-    def debug_get(self, idx: int):
-        dats, lbls = self.__getitem__(idx)
-        print(dats.shape, dats.dtype, dats.device, lbls.shape, lbls.dtype, lbls.device)
-        
     def __repr__(self):
         return f"CustomDataSet(\n\tdata_dir={self.data_dir},\n" \
             f"\tlabel_dir={self.label_dir},\n" \
@@ -63,6 +59,10 @@ class CustomDataSet(data.Dataset):
     def __str__(self):
         return self.__repr__()
 
+    def debug_get(self, idx: int):
+        dats, lbls = self.__getitem__(idx)
+        print(dats.shape, dats.dtype, dats.device, lbls.shape, lbls.dtype, lbls.device)
+        
 if __name__ == "__main__":
     print("Test dataset integrity.")
     dataset = CustomDataSet("../data/", 500, use_half = True)
