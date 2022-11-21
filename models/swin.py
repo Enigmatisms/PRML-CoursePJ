@@ -136,7 +136,6 @@ class SwinTransformer(nn.Module):
         self.swin_layers = nn.ModuleList([])
         num_layers = (2, 2, 2, 2, 2)
         
-        # TODO: Adaptive padding not built!
         for i, num_layer in enumerate(num_layers):
             num_layer = num_layers[i]
             num_head = head_num[i]
@@ -156,6 +155,13 @@ class SwinTransformer(nn.Module):
         )
         self.apply(self.init_weight)
 
+    def pad10(self, X: torch.Tensor) -> torch.Tensor:
+        batch, win_num, win_size, channel = X.shape
+        residual = win_num % self.win_size
+        if residual:
+            X = torch.cat((X, torch.zeros(batch, win_size - residual, win_size, channel, device = X.device)), dim = 1)
+        return X
+
     def loadFromFile(self, load_path:str):
         save = torch.load(load_path)   
         save_model = save['model']                  
@@ -171,6 +177,7 @@ class SwinTransformer(nn.Module):
         X = self.patch_embed(X)
         X = self.emb_drop(X)
         for _, layer in enumerate(self.swin_layers):
+            X = self.pad10(X)       # should be tested (if win_num is the multiple of 10, then nothing is padded)
             X = layer(X)
         channel_num = X.shape[-1]
         X = X.view(batch_size, -1, channel_num).transpose(-1, -2)
@@ -178,7 +185,7 @@ class SwinTransformer(nn.Module):
         return self.classify(X).squeeze(dim = 1)
     
 if __name__ == "__main__":
-    stm = SwinTransformer(7, 96, 224).cuda()
-    test_image = torch.normal(0, 1, (4, 3, 224, 224)).cuda()
+    stm = SwinTransformer(10, 96, 500).cuda()
+    test_image = torch.normal(0, 1, (4, 4, 500)).cuda()
     result = stm.forward(test_image)
     
