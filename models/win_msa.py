@@ -31,7 +31,7 @@ class WinMSA(nn.Module):
         self.head_num = head_num
 
         # positional embeddings
-        self.positional_bias = nn.Parameter(2 * win_size - 1, head_num, requires_grad = True)
+        self.positional_bias = nn.Parameter(torch.zeros(2 * win_size - 1, head_num), requires_grad = True)
         # using register buffer, this tensor will be moved to cuda device if .cuda() is called, also it is stored in state_dict
         self.register_buffer('relp_indices', WinMSA.getIndex(self.win_size))            
 
@@ -45,14 +45,16 @@ class WinMSA(nn.Module):
     def getIndex(win_size:int) -> torch.LongTensor:
         ys, xs = torch.meshgrid(torch.arange(win_size), torch.arange(win_size), indexing = 'ij')
         indices = xs - ys + win_size - 1
-        print(indices)
+        # print(indices)
         return indices
 
     def attention(self, X:torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        print(X.shape)
         batch_size, win_num, seq_len, _ = X.shape
         # typical input (batch_size, L / 10 (e.g., 500 / 10), 10, channel)
         # output (3, batch, win, head, seq, emb_dim/head_num) 0  1      2       3       4               5
         # actually, these are all the same since 2D image is already flattened
+        # TODO: head num can not be devided (multiple)
         qkvs:torch.Tensor = self.qkv_attn(X).view(batch_size, win_num, seq_len, 3, self.head_num, self.emb_dim_h_k).permute(3, 0, 1, 4, 2, 5)
         q, k, v = qkvs[0], qkvs[1], qkvs[2]
         
@@ -67,6 +69,7 @@ class WinMSA(nn.Module):
 
         # attn = attn + self.positional_bias.view(self.head_num, -1)[:, self.relp_indices.view(-1)].view(self.head_num, seq_len, seq_len)
         if not mask is None:
+            print(mask.shape, attn.shape)
             attn = attn + mask.unsqueeze(1).unsqueeze(0)
         proba:torch.Tensor = F.softmax(attn, dim = -1)
         proba = self.attn_drop(proba)
@@ -81,6 +84,7 @@ class WinMSA(nn.Module):
 class SwinMSA(WinMSA):
     def __init__(self, atcg_len, win_size = 10, emb_dim = 96, head_num = 4) -> None:
         super().__init__(win_size, emb_dim, head_num)
+        print("ATCG len:", atcg_len)
         self.win_num = atcg_len // win_size
         # note that if win_size is odd, implementation will be the previous one, in which "half_att_size" is truely att_size / 2 
         self.register_buffer('att_mask', self.getAttentionMask())

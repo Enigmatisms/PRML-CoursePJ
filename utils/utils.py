@@ -21,12 +21,6 @@ INPUT_SUFFIX = "/sequences_"
 LABEL_SUFFIX = "/matrix_"
 
 MAPPING = {'A': 0, 'T': 1, 'C': 2, 'G': 3}
-ENCODING_BIG = np.array([
-    [1, 0, 0, 0, SQRT2, 0, SQRT2, 0, 0.5, -0.5, -0.5, 0.5, 1],
-    [0, 1, 0, 0, 0, SQRT2, 0, SQRT2, 0.5, 0.5, 0.5, 0.5, 1],
-    [0, 0, 1, 0, SQRT2, 0, -SQRT2, 0, -0.5, -0.5, 0.5, 0.5, 1],
-    [0, 0, 0, 1, 0, SQRT2, 0, -SQRT2, -0.5, 0.5, -0.5, 0.5, 1],
-])
 
 ENCODING = np.array([
     [1, 0, 0, 0],
@@ -40,13 +34,13 @@ def convert_atcg_seqs(train: bool, out_prefix: str, seq_len: int):
     path = f"{INPUT_PREFIX}{folder_name}/{seq_len}{INPUT_SUFFIX}{folder_name}.txt"
     with open(path, 'r') as file:
         all_lines = file.readlines()
-        seqs = np.zeros((seq_len, MAX_ENCODING_LEN), dtype = np.uint8)
+        seqs = np.zeros((MAX_ENCODING_LEN, seq_len), dtype = np.uint8)
         out_path_prefix = f"{out_prefix}{folder_name}_{seq_len}/seq_"
         for i, line in enumerate(tqdm.tqdm(all_lines)):
             na_lists = list(line)
             indices = list(map(lambda x: MAPPING[x], na_lists[:-1]))
             length = len(indices)
-            seqs[:length, :] = ENCODING[indices]
+            seqs[:, :length] = ENCODING[indices].T
             seqs.tofile(f"{out_path_prefix}{i+1:05}.dat")
 
 def convert_labels(train: bool, out_prefix: str, seq_len: int):
@@ -64,11 +58,6 @@ def convert_labels(train: bool, out_prefix: str, seq_len: int):
         out_path_prefix = f"{out_prefix}{folder_name}_{seq_len}_label/seq_"
         labels.tofile(f"{out_path_prefix}{i+1:05}.dat")
 
-# ==================== Mains ==========================
-def convert_atcg_main(args):
-    convert_atcg_seqs(not args.is_test, args.atcg_out_prefix, args.atcg_seq_len)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # ================== ATCG converter args ==================
@@ -79,6 +68,10 @@ if __name__ == "__main__":
     parser.add_argument("--label_seq_id", type = int, default = 500, help = "ATCG sequence length")
     parser.add_argument("--label_out_prefix", type = str, default = "../data/", help = "ATCG sequences folder path")
 
+    parser.add_argument("--cvt_label", action="store_true", default = False, help = "Whether to convert labels")
+
     args = parser.parse_args()
-    # convert_atcg_main(args)
-    convert_labels(not args.is_test, args.label_out_prefix, args.label_seq_id)
+    if args.cvt_label:
+        convert_labels(not args.is_test, args.label_out_prefix, args.label_seq_id)
+    else:
+        convert_atcg_seqs(not args.is_test, args.atcg_out_prefix, args.atcg_seq_len)

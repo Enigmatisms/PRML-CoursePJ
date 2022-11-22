@@ -11,7 +11,7 @@
 import torch
 import einops
 from torch import nn
-from models.win_msa import WinMSA, SwinMSA
+from win_msa import WinMSA, SwinMSA
 from timm.models.layers.drop import DropPath
 
 def makeMLP(in_chan, mlp_dropout):
@@ -51,8 +51,7 @@ class SwinTransformerLayer(nn.Module):
         X = einops.rearrange(X, 'N win_l L C -> N (win_l L) C', win_l = self.win_num)
         X = einops.rearrange(X, 'N (L m) C -> N L (m C)', m = 2)
         X = self.merge_lin(self.merge_ln(X))
-        # m should be win_num >> 1, after outputing, padding might be applied
-        return einops.rearrange(X, 'N (m L) C -> N m L C', L = self.win_size)       
+        return X    
 
     def layerForward(self, X:torch.Tensor, use_swin = False) -> torch.Tensor:
         tmp = self.pre_ln(X)
@@ -64,6 +63,7 @@ class SwinTransformerLayer(nn.Module):
     # (N, win_num, L, C) -> (N, win_num, L, C) or (N, win_num/2, L, C)
     def forward(self, X:torch.Tensor)->torch.Tensor:
         # patch partion is done in every layer
+        X = einops.rearrange(X, 'N (m L) C -> N m L C', L = self.win_size)       
         X = self.layerForward(X)
         # shifting, do not forget this
         X = torch.roll(X, shifts = -(self.win_size >> 1), dims = -2)
@@ -73,6 +73,8 @@ class SwinTransformerLayer(nn.Module):
         # after attention op, tensor must be reshape back to the original shape
         if self.patch_merge:
             return self.merge(X)
+        else:
+            X = einops.rearrange(X, 'N m L C -> N (m L) C')       
         return X
 
 """
@@ -90,7 +92,7 @@ class PatchEmbeddings(nn.Module):
         return layer
     
     # TODO: input channel is yet to-be-decided (whether to use pre-encoding is not decided)
-    def __init__(self, ksize = 3, win_size = 10, out_channels = 48, input_channel = 12, norm_layer = None) -> None:
+    def __init__(self, ksize = 3, win_size = 10, out_channels = 48, input_channel = 4, norm_layer = None) -> None:
         super().__init__()
         self.win_size = win_size
         
@@ -104,7 +106,7 @@ class PatchEmbeddings(nn.Module):
     def forward(self, X:torch.Tensor) -> torch.Tensor:
         X = self.convs(X)
         X = X.permute(0, 2, 1)      # (N, C, L) to (N, L, C)
-        return einops.rearrange(X, 'N (m L) C -> N m L C', L = self.win_size)
+        return X
         # output x is (N, win_num, win_size (typically 10), C)
 
 class SwinTransformer(nn.Module):
@@ -121,7 +123,12 @@ class SwinTransformer(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-    def __init__(self, atcg_len, win_size = 10, emb_dim = 96, head_num = (3, 6, 12, 24, 24), mlp_dropout = 0.1, emb_dropout = 0.1) -> None:
+    def __init__(self, atcg_len, win_size = 10, emb_dim = 96, 
+        head_num = (3, 6, 12, 24, 24),
+        mlp_dropout = 0.1, 
+        emb_dropout = 0.1,
+        path_drop = 0.1
+    ) -> None:
         super().__init__()
         self.win_size = win_size
         self.emb_dim = emb_dim
@@ -129,23 +136,24 @@ class SwinTransformer(nn.Module):
         self.head_num = head_num
         current_img_size = atcg_len
         
-        self.patch_embed = PatchEmbeddings(atcg_len, win_size, emb_dim, 3)
+        self.patch_embed = PatchEmbeddings(3, win_size, emb_dim, 4)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.emb_drop = nn.Dropout(emb_dropout)
         # input image_size / 4, output_imgae_size / 4
         self.swin_layers = nn.ModuleList([])
-        num_layers = (2, 2, 2, 2, 2)
+        num_layers = (2, 2, 4, 2)
         
         for i, num_layer in enumerate(num_layers):
             num_layer = num_layers[i]
             num_head = head_num[i]
             for _ in range(num_layer - 1):
-                self.swin_layers.append(SwinTransformerLayer(win_size, emb_dim, current_img_size, num_head, mlp_dropout))
-            final_layer_merge_patch = True if i < 4 else False
-            self.swin_layers.append(SwinTransformerLayer(win_size, emb_dim, current_img_size, num_head, mlp_dropout, final_layer_merge_patch))
+                self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, mlp_dropout, path_drop))
+
+            # This should be more focused
+            self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, mlp_dropout, path_drop, True))
             current_img_size >>= 1
-            if i < 3:
-                emb_dim <<= 1
+            current_img_size = self.length_pad10(current_img_size)
+            emb_dim = emb_dim // 2 * 3
         # final channel 768, maybe it is too narrow
         self.classify = nn.Sequential(
             nn.Linear(emb_dim, emb_dim << 1),
@@ -156,11 +164,18 @@ class SwinTransformer(nn.Module):
         self.apply(self.init_weight)
 
     def pad10(self, X: torch.Tensor) -> torch.Tensor:
-        batch, win_num, win_size, channel = X.shape
-        residual = win_num % self.win_size
+        print(X.shape)
+        batch, total_len, channel = X.shape
+        residual = total_len % self.win_size
         if residual:
-            X = torch.cat((X, torch.zeros(batch, win_size - residual, win_size, channel, device = X.device)), dim = 1)
+            X = torch.cat((X, torch.zeros(batch, self.win_size - residual, channel, device = X.device)), dim = 1)
         return X
+
+    def length_pad10(self, length: int) -> int:
+        residual = length % self.win_size
+        if residual:
+            return length + residual
+        return length
 
     def loadFromFile(self, load_path:str):
         save = torch.load(load_path)   
@@ -178,14 +193,18 @@ class SwinTransformer(nn.Module):
         X = self.emb_drop(X)
         for _, layer in enumerate(self.swin_layers):
             X = self.pad10(X)       # should be tested (if win_num is the multiple of 10, then nothing is padded)
+            shape_before = X.shape
             X = layer(X)
+            
+            # shape mismatch here, should be dim 3
+            print(f"Shape before: {shape_before}, shape after: {X.shape}")
         channel_num = X.shape[-1]
         X = X.view(batch_size, -1, channel_num).transpose(-1, -2)
         X = self.avg_pool(X).transpose(-1, -2)
         return self.classify(X).squeeze(dim = 1)
     
 if __name__ == "__main__":
-    stm = SwinTransformer(10, 96, 500).cuda()
-    test_image = torch.normal(0, 1, (4, 4, 500)).cuda()
-    result = stm.forward(test_image)
+    stm = SwinTransformer(500, win_size = 10, emb_dim = 96).cuda()
+    test_seqs = torch.normal(0, 1, (8, 4, 500)).cuda()
+    result = stm.forward(test_seqs)
     
