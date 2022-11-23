@@ -49,7 +49,6 @@ class WinMSA(nn.Module):
         return indices
 
     def attention(self, X:torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        print(X.shape)
         batch_size, win_num, seq_len, _ = X.shape
         # typical input (batch_size, L / 10 (e.g., 500 / 10), 10, channel)
         # output (3, batch, win, head, seq, emb_dim/head_num) 0  1      2       3       4               5
@@ -69,7 +68,6 @@ class WinMSA(nn.Module):
 
         # attn = attn + self.positional_bias.view(self.head_num, -1)[:, self.relp_indices.view(-1)].view(self.head_num, seq_len, seq_len)
         if not mask is None:
-            print(mask.shape, attn.shape)
             attn = attn + mask.unsqueeze(1).unsqueeze(0)
         proba:torch.Tensor = F.softmax(attn, dim = -1)
         proba = self.attn_drop(proba)
@@ -84,7 +82,6 @@ class WinMSA(nn.Module):
 class SwinMSA(WinMSA):
     def __init__(self, atcg_len, win_size = 10, emb_dim = 96, head_num = 4) -> None:
         super().__init__(win_size, emb_dim, head_num)
-        print("ATCG len:", atcg_len)
         self.win_num = atcg_len // win_size
         # note that if win_size is odd, implementation will be the previous one, in which "half_att_size" is truely att_size / 2 
         self.register_buffer('att_mask', self.getAttentionMask())

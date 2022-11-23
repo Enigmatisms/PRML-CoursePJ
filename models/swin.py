@@ -124,7 +124,7 @@ class SwinTransformer(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
     def __init__(self, atcg_len, win_size = 10, emb_dim = 96, 
-        head_num = (3, 6, 12, 24, 24),
+        head_num = (3, 6, 12, 18),
         mlp_dropout = 0.1, 
         emb_dropout = 0.1,
         path_drop = 0.1
@@ -141,6 +141,7 @@ class SwinTransformer(nn.Module):
         self.emb_drop = nn.Dropout(emb_dropout)
         # input image_size / 4, output_imgae_size / 4
         self.swin_layers = nn.ModuleList([])
+        # 96 144 216 324 -> 486
         num_layers = (2, 2, 4, 2)
         
         for i, num_layer in enumerate(num_layers):
@@ -164,7 +165,6 @@ class SwinTransformer(nn.Module):
         self.apply(self.init_weight)
 
     def pad10(self, X: torch.Tensor) -> torch.Tensor:
-        print(X.shape)
         batch, total_len, channel = X.shape
         residual = total_len % self.win_size
         if residual:
@@ -193,18 +193,15 @@ class SwinTransformer(nn.Module):
         X = self.emb_drop(X)
         for _, layer in enumerate(self.swin_layers):
             X = self.pad10(X)       # should be tested (if win_num is the multiple of 10, then nothing is padded)
-            shape_before = X.shape
             X = layer(X)
-            
-            # shape mismatch here, should be dim 3
-            print(f"Shape before: {shape_before}, shape after: {X.shape}")
         channel_num = X.shape[-1]
         X = X.view(batch_size, -1, channel_num).transpose(-1, -2)
         X = self.avg_pool(X).transpose(-1, -2)
         return self.classify(X).squeeze(dim = 1)
     
 if __name__ == "__main__":
-    stm = SwinTransformer(500, win_size = 10, emb_dim = 96).cuda()
-    test_seqs = torch.normal(0, 1, (8, 4, 500)).cuda()
+    SEQ_LEN = 1000
+    stm = SwinTransformer(SEQ_LEN, win_size = 10, emb_dim = 96).cuda()
+    test_seqs = torch.normal(0, 1, (8, 4, SEQ_LEN)).cuda()
     result = stm.forward(test_seqs)
     
