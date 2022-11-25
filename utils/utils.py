@@ -6,12 +6,16 @@
     @date: 2022-11-16
 """
 
-import numpy as np
-import argparse
-import tqdm
+import os
 import time
+import tqdm
+import shutil
+import argparse
+import numpy as np
 from scipy.io import mmread
+from datetime import datetime
 from scipy.sparse import coo_matrix
+from torch.utils.tensorboard import SummaryWriter
 
 MAX_SEQ_LEN = 1500
 MAX_ENCODING_LEN = 4
@@ -57,6 +61,13 @@ def convert_labels(train: bool, out_prefix: str, seq_len: int):
     for i, labels in enumerate(tqdm.tqdm(result)):
         out_path_prefix = f"{out_prefix}{folder_name}_{seq_len}_label/seq_"
         labels.tofile(f"{out_path_prefix}{i+1:05}.dat")
+        
+def get_summary_writer(epochs:int, del_dir:bool):
+    logdir = './logs/'
+    if os.path.exists(logdir) and del_dir:
+        shutil.rmtree(logdir)
+    time_stamp = "{0:%Y-%m-%d/%H-%M-%S}-epoch{1}/".format(datetime.now(), epochs)
+    return SummaryWriter(log_dir = logdir + time_stamp)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -108,6 +108,7 @@ class SwinMSA(WinMSA):
         return mask
 
 if __name__ == "__main__":
+    print("Swin Multi-Head Attention unit test")
     sw = SwinMSA(30, 10, 1, 1).cuda()
     # print(sw.relp_indices.shape)
     mask = sw.getAttentionMask()

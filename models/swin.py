@@ -123,11 +123,8 @@ class SwinTransformer(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-    def __init__(self, atcg_len, win_size = 10, emb_dim = 96, 
+    def __init__(self, atcg_len, args, win_size = 10, emb_dim = 96, 
         head_num = (3, 6, 12, 18),
-        mlp_dropout = 0.1, 
-        emb_dropout = 0.1,
-        path_drop = 0.1
     ) -> None:
         super().__init__()
         self.win_size = win_size
@@ -138,7 +135,7 @@ class SwinTransformer(nn.Module):
         
         self.patch_embed = PatchEmbeddings(3, win_size, emb_dim, 4)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
-        self.emb_drop = nn.Dropout(emb_dropout)
+        self.emb_drop = nn.Dropout(args.emb_dropout)
         # input image_size / 4, output_imgae_size / 4
         self.swin_layers = nn.ModuleList([])
         # 96 144 216 324 -> 486
@@ -148,10 +145,10 @@ class SwinTransformer(nn.Module):
             num_layer = num_layers[i]
             num_head = head_num[i]
             for _ in range(num_layer - 1):
-                self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, mlp_dropout, path_drop))
+                self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_drop))
 
             # This should be more focused
-            self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, mlp_dropout, path_drop, True))
+            self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_drop, True))
             current_img_size >>= 1
             current_img_size = self.length_pad10(current_img_size)
             emb_dim = emb_dim // 2 * 3
@@ -177,14 +174,18 @@ class SwinTransformer(nn.Module):
             return length + residual
         return length
 
-    def loadFromFile(self, load_path:str):
+    def load(self, load_path:str, opt = None, other_stuff = None):
         save = torch.load(load_path)   
         save_model = save['model']                  
+        state_dict = {k:save_model[k] for k in self.state_dict().keys()}
         model_dict = self.state_dict()
-        state_dict = {k:v for k, v in save_model.items()}
         model_dict.update(state_dict)
-        self.load_state_dict(model_dict) 
-        print("Swin Transformer Model loaded from '%s'"%(load_path))
+        self.load_state_dict(model_dict)
+        if not opt is None:
+            opt.load_state_dict(save['optimizer'])
+        print("Swin Transformer 1D loaded from '%s'"%(load_path))
+        if not other_stuff is None:
+            return [save[k] for k in other_stuff]
 
     def forward(self, X:torch.Tensor) -> torch.Tensor:
         # The input X is of shape (N, L, C)
@@ -196,10 +197,11 @@ class SwinTransformer(nn.Module):
             X = layer(X)
         channel_num = X.shape[-1]
         X = X.view(batch_size, -1, channel_num).transpose(-1, -2)
-        X = self.avg_pool(X).transpose(-1, -2)
-        return self.classify(X).squeeze(dim = 1)
+        X = self.avg_pool(X).transpose(-1, -2)      # shape after avg pooling: (N, 1, C)
+        return self.classify(X).squeeze(dim = 1)    # output is of shape (N, 2000)
     
 if __name__ == "__main__":
+    print("Swin Transformer 1D unit test")
     SEQ_LEN = 1000
     stm = SwinTransformer(SEQ_LEN, win_size = 10, emb_dim = 96).cuda()
     test_seqs = torch.normal(0, 1, (8, 4, SEQ_LEN)).cuda()

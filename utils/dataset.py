@@ -20,6 +20,7 @@ class CustomDataSet(data.Dataset):
         self.root_dir = root_dir
         train_prefix = "train" if is_train else "test"
 
+        self.seq_num = seq_num
         self.data_dir = f"{root_dir}{train_prefix}_{seq_num}/"
         self.label_dir = f"{root_dir}{train_prefix}_{seq_num}_label/"
 
@@ -44,7 +45,7 @@ class CustomDataSet(data.Dataset):
         label_loc = os.path.join(self.label_dir, self.names[idx])
 
         data_value = np.fromfile(data_loc, dtype = np.uint8).astype(self.float_type["np_float"])        # all data are stored as u8, should be converted to float
-        tensor_data = torch.from_numpy(data_value).to(self.dev)
+        tensor_data = torch.from_numpy(data_value).to(self.dev).reshape(-1, self.seq_num)
         tensor_data = self.transform(tensor_data)   # preprocessing the loaded data (e.g. deterministic encoding)
 
         raw_label = np.fromfile(label_loc, dtype = np.uint8).astype(self.float_type["np_float"])
