@@ -9,6 +9,7 @@
 import os
 import time
 import tqdm
+import torch
 import shutil
 import argparse
 import numpy as np
@@ -61,6 +62,16 @@ def convert_labels(train: bool, out_prefix: str, seq_len: int):
     for i, labels in enumerate(tqdm.tqdm(result)):
         out_path_prefix = f"{out_prefix}{folder_name}_{seq_len}_label/seq_"
         labels.tofile(f"{out_path_prefix}{i+1:05}.dat")
+
+def save_model(model, path_info: dict, other_stuff: dict = None, opt = None):
+    output_index = path_info['index'] % path_info['max_num'] + 1
+    path = f"{path_info['dir']}chkpt_{output_index}_{path_info['type']}.{path_info['ext']}"
+    checkpoint = {'model': model.state_dict(),}
+    if not opt is None:
+        checkpoint['optimizer'] = opt.state_dict()
+    if not other_stuff is None:
+        checkpoint.update(other_stuff)
+    torch.save(checkpoint, path)
         
 def get_summary_writer(epochs:int, del_dir:bool):
     logdir = './logs/'

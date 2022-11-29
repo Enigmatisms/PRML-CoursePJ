@@ -188,7 +188,7 @@ class SwinTransformer(nn.Module):
             return [save[k] for k in other_stuff]
 
     def forward(self, X:torch.Tensor) -> torch.Tensor:
-        # The input X is of shape (N, L, C)
+        # The input X is of shape (N, C, L) -> (batch, 4, seq_length)
         batch_size, _, _ = X.shape 
         X = self.patch_embed(X)
         X = self.emb_drop(X)

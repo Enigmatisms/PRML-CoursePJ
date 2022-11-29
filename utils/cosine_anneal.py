@@ -51,7 +51,7 @@ class LECosineAnnealingSmoothRestart:
         elif x >= self.epochs:
             return self.min_end
         x -= self.warm_up
-        return 0.5 * (self.f(x) - self.g(x)) * self.c(x) + (self.f(x) + self.g(x)) * 0.5       
+        return 0.5 * (self.f(x) - self.g(x)) * self.c(x) + (self.f(x) + self.g(x)) * 0.5      
     
     def update_opt_lr(self, train_cnt, opt: Optimizer = None):
         new_lrate = self.lr(train_cnt)
