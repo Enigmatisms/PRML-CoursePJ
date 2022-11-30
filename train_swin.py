@@ -38,7 +38,7 @@ def setup(args):
     debugging           = args.debug
     
     # params for training
-    weight_decay        = args.weight_decay
+    weight_decay        = args.adam_wdecay
     
     # dataset specifications
     load_path           = args.load_path
@@ -49,16 +49,22 @@ def setup(args):
     asl_gamma_neg       = args.asl_gamma_neg
     asl_eps             = args.asl_eps
     asl_clip            = args.asl_clip
+    epoch               = 0
       
     if not torch.cuda.is_available():
         print("CUDA not available.")
         exit(-1)
     
     swin_model = SwinTransformer(atcg_len, args)
-    if os.path.exists(load_path):
-        epoch = swin_model.load(load_path, opt, ["epoch"])
+    if not load_path:
+        if is_eval:
+            raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
     else:
-        raise RuntimeError(f"Model file '{load_path}' does not exist.")
+        load_path = os.path.join(default_chkpt_path if not args.load_model else default_model_path, args.load_path)
+        if os.path.exists(load_path):
+            epoch = swin_model.load(load_path, opt, ["epoch"])
+        else:
+            raise RuntimeError(f"Model file '{load_path}' does not exist.")
 
     if debugging:
         for submodule in swin_model.modules():
@@ -72,9 +78,9 @@ def setup(args):
     ret = {'model': swin_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
     if is_eval:
         trainset = None if is_eval else CustomDataSet("./data/", atcg_len, None, True, True, args.half_opt)
-        opt = optim.AdamW(params = swin_model.parameters(), lr = args.lr, betas=(0.9, 0.999), weight_decay = weight_decay)
         lec_sch = LECosineAnnealingSmoothRestart(args)
-        epochs = args.full_epochs + args.cooldown_epoch
+        opt = optim.AdamW(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999), weight_decay = weight_decay)
+        epochs = args.full_epochs + args.cooldown_epochs
         writer = get_summary_writer(epochs, del_dir)
         swin_model.eval()
 
@@ -104,7 +110,7 @@ def train(train_kwargs):
 
     train_loader    = DataLoader(trainset, args.batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
 
-    scaler = GradScaler() if args.use_amp else None
+    scaler = GradScaler() if args.half_opt else None
     
     loader_len = len(train_loader)
     for ep in tqdm.tqdm(range(epoch, full_epoch)):
@@ -152,7 +158,7 @@ def train(train_kwargs):
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0 and ep > epoch:
-            eval(train_kwargs)
+            eval(train_kwargs, ep)
     print("Training completed.")
     model_info = {'index': ep, 'max_num': 3, 'dir': default_chkpt_path, 'type': 'baseline', 'ext': 'pt'}
     save_model(model, model_info, opt)
@@ -168,7 +174,7 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True):
     test_loader = DataLoader(testset, args.test_batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
     test_batches = args.test_batches if args.test_batches else len(test_loader)
 
-    scaler = GradScaler() if args.use_amp else None
+    scaler = GradScaler() if args.half_opt else None
     test_full_num = 0
     test_correct_num = 0
     total_loss = 0

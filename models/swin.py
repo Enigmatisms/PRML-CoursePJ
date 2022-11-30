@@ -145,10 +145,10 @@ class SwinTransformer(nn.Module):
             num_layer = num_layers[i]
             num_head = head_num[i]
             for _ in range(num_layer - 1):
-                self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_drop))
+                self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_dropout))
 
             # This should be more focused
-            self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_drop, True))
+            self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_dropout, True))
             current_img_size >>= 1
             current_img_size = self.length_pad10(current_img_size)
             emb_dim = emb_dim // 2 * 3

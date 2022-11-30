@@ -21,10 +21,10 @@ class LECosineAnnealingSmoothRestart:
         - use_linear: whether upper bound decreases linearly
     """
     def __init__(self, args, use_linear = False) -> None:
-        max_start = args.max_start
-        min_start = args.min_start
-        max_end = args.max_end
-        min_end = args.min_end
+        max_start = args.lr_max_start
+        min_start = args.lr_min_start
+        max_end = args.lr_max_end
+        min_end = args.lr_min_end
         epochs = args.full_epochs
         folds = args.cosine_folds
         warm_up = args.warmup_epochs
