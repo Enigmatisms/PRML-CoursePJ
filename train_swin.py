@@ -73,16 +73,17 @@ def setup(args):
 
     # loss function adopts paper "Asymmetric Loss For Multi-Label Classification".
     loss_func = AsymmetricLossMultiLabel(gamma_pos = asl_gamma_pos, gamma_neg = asl_gamma_neg, clip = asl_clip, eps = asl_eps)
-    testset = CustomDataSet("./data/", atcg_len, None, False, True, args.half_opt)
+    testset = CustomDataSet("./data/", atcg_len, None, False, args.half_opt)
     
     ret = {'model': swin_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
     if is_eval:
-        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, None, True, True, args.half_opt)
+        swin_model.eval()
+    else:
+        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, None, True, args.half_opt)
         lec_sch = LECosineAnnealingSmoothRestart(args)
         opt = optim.AdamW(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999), weight_decay = weight_decay)
         epochs = args.full_epochs + args.cooldown_epochs
         writer = get_summary_writer(epochs, del_dir)
-        swin_model.eval()
 
         ret['opt']          = opt
         ret['epoch']        = epoch
@@ -90,7 +91,6 @@ def setup(args):
         ret['opt_sch']      = lec_sch
         ret['train_set']    = trainset
         ret['full_epoch']   = epochs
-    else:
         swin_model.train()
     return ret
 
@@ -109,6 +109,7 @@ def train(train_kwargs):
                 = train_kwargs['opt_sch']     
 
     train_loader    = DataLoader(trainset, args.batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
+    model = model.cuda()
 
     scaler = GradScaler() if args.half_opt else None
     
@@ -118,6 +119,8 @@ def train(train_kwargs):
         train_correct_num = 0
         total_loss = 0
         for i, (batch_x, batch_y) in enumerate(train_loader):
+            batch_x = batch_x.cuda()
+            batch_y = batch_y.cuda()
             opt.zero_grad()
             pred_y = model.forward(batch_x)
 
@@ -133,11 +136,12 @@ def train(train_kwargs):
                 loss.backward()
                 opt.step()
             total_loss += loss
-            train_full_num += args.batch_size * OUTPUT_DIM
-            train_correct_num += acc_calculate(pred_y, batch_y, args.pos_threshold)
+            local_correct_num, total_num = acc_calculate(pred_y, batch_y, args.pos_threshold)
+            train_correct_num += local_correct_num
+            train_full_num += total_num
             if args.train_verbose > 0 and i % args.train_verbose == 0:
                 local_cnt = ep * loader_len + i
-                local_acc = train_correct_num / OUTPUT_DIM
+                local_acc = local_correct_num / total_num
                 writer.add_scalar('Loss/Train Loss', loss, local_cnt)
                 writer.add_scalar('Acc/Train Acc', local_acc, local_cnt)
 
@@ -165,7 +169,6 @@ def train(train_kwargs):
 
 def eval(eval_kwargs, cur_epoch = 0, use_writer = True):
     args        = eval_kwargs['args']
-    writer      = eval_kwargs['writer']      
     testset     = eval_kwargs['test_set']   
     loss_func   = eval_kwargs['loss_func']
     model: SwinTransformer\
@@ -178,7 +181,10 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True):
     test_full_num = 0
     test_correct_num = 0
     total_loss = 0
+    model = model.cuda()
     for i, (batch_x, batch_y) in enumerate(test_loader):
+        batch_x = batch_x.cuda()
+        batch_y = batch_y.cuda()
         if i >= test_batches: break
         pred_y = model.forward(batch_x)
         if scaler is not None:
@@ -186,20 +192,23 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True):
                 loss = loss_func(pred_y, batch_y)
         else:
             loss: torch.Tensor = loss_func(pred_y, batch_y)
-        test_full_num += args.test_batch_size * OUTPUT_DIM
-        test_correct_num += acc_calculate(pred_y, batch_y, args.pos_threshold)
+        local_correct_num, batch_pos_num = acc_calculate(pred_y, batch_y, args.pos_threshold)
+        test_full_num += batch_pos_num
+        test_correct_num += local_correct_num
         total_loss += loss
     total_loss /= test_batches
     vanilla_acc = test_correct_num / test_full_num
     print(f"Evaluating Epoch: {cur_epoch:4d}\ttest loss: {total_loss.item():.5f}\ttest acc: {vanilla_acc:.4f}\t")    
     if use_writer:    
-        writer.add_scalar('Loss/Test Avg Loss', total_loss, cur_epoch)
-        writer.add_scalar('Acc/Test Avg Acc', vanilla_acc, cur_epoch)
+        eval_kwargs['writer'].add_scalar('Loss/Test Avg Loss', total_loss, cur_epoch)
+        eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc', vanilla_acc, cur_epoch)
 
 def main(context: dict):
-    if "trainset" in context:
+    if "train_set" in context:
+        print("Swin Transformer 1D training...")
         train(context)
     else:
+        print("Swin Transformer 1D evaluating...")
         eval(context, 0, False)
 
 if __name__ == "__main__":

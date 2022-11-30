@@ -39,4 +39,4 @@ def nan_hook(self, output):
 def acc_calculate(pred_y: torch.Tensor, target_y: torch.Tensor, split = 0.5):
     target_y = target_y.to(bool)
     positives = pred_y > split
-    return torch.sum(target_y == positives)
+    return torch.sum((target_y == positives) & target_y), torch.sum(target_y)

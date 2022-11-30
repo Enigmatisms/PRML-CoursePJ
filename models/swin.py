@@ -11,7 +11,7 @@
 import torch
 import einops
 from torch import nn
-from win_msa import WinMSA, SwinMSA
+from models.win_msa import WinMSA, SwinMSA
 from timm.models.layers.drop import DropPath
 
 def makeMLP(in_chan, mlp_dropout):

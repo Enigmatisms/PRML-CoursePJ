@@ -15,7 +15,7 @@ class CustomDataSet(data.Dataset):
     """
         root_dir: dataset root directory, should end with "/"
     """
-    def __init__(self, root_dir: str, seq_num: int, transform = None, is_train = True, is_cuda = False, use_half = False):
+    def __init__(self, root_dir: str, seq_num: int, transform = None, is_train = True, use_half = False):
         self.is_train = is_train
         self.root_dir = root_dir
         train_prefix = "train" if is_train else "test"
@@ -29,9 +29,7 @@ class CustomDataSet(data.Dataset):
         all_ndarray = [name for name in img_names]
         self.names = natsort.natsorted(all_ndarray)
         
-        self.cuda = is_cuda
         self.use_half = use_half
-        self.dev = "cuda" if is_cuda else "cpu"
         self.float_type = {"np_float": np.float16, "torch_float": torch.float16} if use_half else {"np_float": np.float32, "torch_float": torch.float32}
 
         if self.transform is None:
@@ -45,17 +43,17 @@ class CustomDataSet(data.Dataset):
         label_loc = os.path.join(self.label_dir, self.names[idx])
 
         data_value = np.fromfile(data_loc, dtype = np.uint8).astype(self.float_type["np_float"])        # all data are stored as u8, should be converted to float
-        tensor_data = torch.from_numpy(data_value).to(self.dev).reshape(-1, self.seq_num)
+        tensor_data = torch.from_numpy(data_value).reshape(-1, self.seq_num)
         tensor_data = self.transform(tensor_data)   # preprocessing the loaded data (e.g. deterministic encoding)
 
         raw_label = np.fromfile(label_loc, dtype = np.uint8).astype(self.float_type["np_float"])
-        tensor_label = torch.from_numpy(raw_label).to(self.dev)
+        tensor_label = torch.from_numpy(raw_label)
         return tensor_data, tensor_label
 
     def __repr__(self):
         return f"CustomDataSet(\n\tdata_dir={self.data_dir},\n" \
-            f"\tlabel_dir={self.label_dir},\n" \
-            f"\tuse_cuda={self.cuda}, use_half={self.use_half}, is_train={self.is_train}, len={len(self.names)}\n)"
+            f"\tlabel_dir={self.label_dir}, use_half={self.use_half}\n" \
+            f"is_train={self.is_train}, len={len(self.names)}\n)"
 
     def __str__(self):
         return self.__repr__()

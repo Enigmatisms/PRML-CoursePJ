@@ -1,3 +1,4 @@
 data_project4/
 *.dat
 **/__pycache__
+logs/**
