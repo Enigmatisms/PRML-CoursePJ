@@ -157,6 +157,10 @@ class SwinTransformer(nn.Module):
             nn.Linear(emb_dim, emb_dim << 1),
             nn.ReLU(),
             nn.Linear(emb_dim << 1, 2000),
+            nn.Dropout(args.class_dropout),
+            nn.ReLU(),
+            nn.Linear(2000, 2000),
+            nn.Dropout(args.class_dropout),
             nn.Sigmoid()
         )
         self.apply(self.init_weight)

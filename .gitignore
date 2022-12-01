@@ -1,4 +1,5 @@
-data_project4/
 *.dat
-**/__pycache__
 logs/**
+**/__pycache__
+data_project4/
+*.zip

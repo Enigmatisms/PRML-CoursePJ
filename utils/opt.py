@@ -28,17 +28,18 @@ def get_opts():
     parser.add_argument("--test_batches", type = int, default = 20, help = "Only to evaluate the first <test_batches> test batches (to save time)")
 
     # model parameters
-    parser.add_argument("--emb_dropout", type = float, default = 0.1, help = "Convolutional embedding dropout")
-    parser.add_argument("--mlp_dropout", type = float, default = 0.1, help = "Dropout for transformer MLP")
-    parser.add_argument("--path_dropout", type = float, default = 0.1, help = "Random path dropout rate")
+    parser.add_argument("--emb_dropout", type = float, default = 0.05, help = "Convolutional embedding dropout")
+    parser.add_argument("--mlp_dropout", type = float, default = 0.05, help = "Dropout for transformer MLP")
+    parser.add_argument("--path_dropout", type = float, default = 0.05, help = "Random path dropout rate")
+    parser.add_argument("--class_dropout", type = float, default = 0.05, help = "Random path dropout rate")
     parser.add_argument("--adam_wdecay", type = float, default = 3e-2, help = "Weight decay for AdamW")
 
     # asymmetrical loss parameters
     # TODO: defaults should be modified
-    parser.add_argument("--asl_gamma_pos", type = float, default = 0.5, help = "asl gamma pos")
-    parser.add_argument("--asl_gamma_neg", type = float, default = 4.0, help = "asl gamma neg")
+    parser.add_argument("--asl_gamma_pos", type = float, default = 0.1, help = "asl gamma pos")
+    parser.add_argument("--asl_gamma_neg", type = float, default = 5.0, help = "asl gamma neg")
     parser.add_argument("--asl_eps", type = float, default = 1e-8, help = "asl epsilon")
-    parser.add_argument("--asl_clip", type = float, default = 0.05, help = "asl clipping")
+    parser.add_argument("--asl_clip", type = float, default = 0.07, help = "asl clipping")
 
     # lr scheduler parameters
     parser.add_argument("--cosine_folds", type = int, default = 4, help = "How many periods the cosine scheduler should have")

@@ -43,7 +43,7 @@ class WinMSA(nn.Module):
 
     @staticmethod
     def getIndex(win_size:int) -> torch.LongTensor:
-        ys, xs = torch.meshgrid(torch.arange(win_size), torch.arange(win_size), indexing = 'ij')
+        ys, xs = torch.meshgrid(torch.arange(win_size), torch.arange(win_size))
         indices = xs - ys + win_size - 1
         # print(indices)
         return indices

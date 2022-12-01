@@ -136,19 +136,22 @@ def train(train_kwargs):
                 loss.backward()
                 opt.step()
             total_loss += loss
-            local_correct_num, total_num = acc_calculate(pred_y, batch_y, args.pos_threshold)
+            local_correct_num, total_num, all_classes = acc_calculate(pred_y, batch_y, args.pos_threshold)
             train_correct_num += local_correct_num
             train_full_num += total_num
             if args.train_verbose > 0 and i % args.train_verbose == 0:
                 local_cnt = ep * loader_len + i
                 local_acc = local_correct_num / total_num
+                local_full_acc = all_classes / (OUTPUT_DIM * args.batch_size)
                 writer.add_scalar('Loss/Train Loss', loss, local_cnt)
                 writer.add_scalar('Acc/Train Acc', local_acc, local_cnt)
+                writer.add_scalar('Acc/Train Acc (All)', local_full_acc, local_cnt)
 
                 print(f"Traning Epoch: {ep:4d} / {full_epoch:4d}\
                     \tbatch: {i:3d} / {loader_len:3d}\
                     \ttrain loss: {loss.item():.5f}\
-                    \ttrain acc: {local_acc:.4f}"
+                    \ttrain acc: {local_acc:.4f}\
+                    \ttrain acc full: {local_full_acc:.4f}"
                 )
         opt, current_lr = lec_sch.update_opt_lr(ep, opt)
         vanilla_acc = train_correct_num / train_full_num
