@@ -122,16 +122,16 @@ def train(train_kwargs):
             batch_x = batch_x.cuda()
             batch_y = batch_y.cuda()
             opt.zero_grad()
-            pred_y = model.forward(batch_x)
-
             # There might be preprocessing of predictions?
             if scaler is not None:
                 with autocast():
+                    pred_y = model.forward(batch_x)
                     loss = loss_func(pred_y, batch_y)
                     scaler.scale(loss).backward()
                     scaler.step(opt)
                     scaler.update()
             else:
+                pred_y = model.forward(batch_x)
                 loss: torch.Tensor = loss_func(pred_y, batch_y)
                 loss.backward()
                 opt.step()
@@ -164,47 +164,56 @@ def train(train_kwargs):
         chkpt_info = {'index': ep, 'max_num': 3, 'dir': default_chkpt_path, 'type': 'baseline', 'ext': 'pt'}
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
-        if ep % args.train_eval_time == 0 and ep > epoch:
-            eval(train_kwargs, ep)
+        if ep % args.train_eval_time == 0:
+            eval(train_kwargs, ep, resume = True)
     print("Training completed.")
     model_info = {'index': ep, 'max_num': 3, 'dir': default_chkpt_path, 'type': 'baseline', 'ext': 'pt'}
     save_model(model, model_info, opt)
 
-def eval(eval_kwargs, cur_epoch = 0, use_writer = True):
+def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
     args        = eval_kwargs['args']
     testset     = eval_kwargs['test_set']   
     loss_func   = eval_kwargs['loss_func']
     model: SwinTransformer\
                 = eval_kwargs['model']   
 
-    test_loader = DataLoader(testset, args.test_batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
+    test_loader = DataLoader(testset, args.test_batch_size, shuffle = False, num_workers = 2, drop_last = False)
     test_batches = args.test_batches if args.test_batches else len(test_loader)
 
     scaler = GradScaler() if args.half_opt else None
+    target_pos_num = 0
+    pred_pos_num = 0
     test_full_num = 0
-    test_correct_num = 0
     total_loss = 0
-    model = model.cuda()
-    for i, (batch_x, batch_y) in enumerate(test_loader):
-        batch_x = batch_x.cuda()
-        batch_y = batch_y.cuda()
-        if i >= test_batches: break
-        pred_y = model.forward(batch_x)
-        if scaler is not None:
-            with autocast():
-                loss = loss_func(pred_y, batch_y)
-        else:
-            loss: torch.Tensor = loss_func(pred_y, batch_y)
-        local_correct_num, batch_pos_num = acc_calculate(pred_y, batch_y, args.pos_threshold)
-        test_full_num += batch_pos_num
-        test_correct_num += local_correct_num
-        total_loss += loss
+    if resume:
+        model.eval()
+    with torch.no_grad():
+        for i, (batch_x, batch_y) in enumerate(test_loader):
+            batch_x = batch_x.cuda()
+            batch_y = batch_y.cuda()
+            if i >= test_batches: break
+            if scaler is not None:
+                with autocast():
+                    pred_y = model.forward(batch_x)
+                    loss = loss_func(pred_y, batch_y)
+            else:
+                pred_y = model.forward(batch_x)
+                loss: torch.Tensor = loss_func(pred_y, batch_y)
+            local_correct_num, batch_pos_num, full_num = acc_calculate(pred_y, batch_y, args.pos_threshold)
+            target_pos_num += batch_pos_num
+            pred_pos_num += local_correct_num
+            total_loss += loss
+            test_full_num += full_num
+    if resume:
+        model.train()
     total_loss /= test_batches
-    vanilla_acc = test_correct_num / test_full_num
-    print(f"Evaluating Epoch: {cur_epoch:4d}\ttest loss: {total_loss.item():.5f}\ttest acc: {vanilla_acc:.4f}\t")    
+    vanilla_acc = test_full_num / (test_batches * args.test_batch_size * OUTPUT_DIM)
+    vanilla_pos_acc = pred_pos_num / target_pos_num
+    print(f"Evaluating Epoch: {cur_epoch:4d}\ttest loss: {total_loss.item():.5f}\ttest acc: {vanilla_pos_acc:.4f}\ttest acc (All): {vanilla_acc:.4f}")    
     if use_writer:    
         eval_kwargs['writer'].add_scalar('Loss/Test Avg Loss', total_loss, cur_epoch)
-        eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc', vanilla_acc, cur_epoch)
+        eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc', vanilla_pos_acc, cur_epoch)
+        eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc (All)', vanilla_acc, cur_epoch)
 
 def main(context: dict):
     if "train_set" in context:
@@ -212,6 +221,7 @@ def main(context: dict):
         train(context)
     else:
         print("Swin Transformer 1D evaluating...")
+        context['model'] = context['model'].cuda()
         eval(context, 0, False)
 
 if __name__ == "__main__":
