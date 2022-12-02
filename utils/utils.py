@@ -44,8 +44,7 @@ def convert_atcg_seqs(train: bool, out_prefix: str, seq_len: int):
         for i, line in enumerate(tqdm.tqdm(all_lines)):
             na_lists = list(line)
             indices = list(map(lambda x: MAPPING[x], na_lists[:-1]))
-            length = len(indices)
-            seqs[:, :length] = ENCODING[indices].T
+            seqs[:, :seq_len] = ENCODING[indices].T
             seqs.tofile(f"{out_path_prefix}{i+1:05}.dat")
 
 def convert_labels(train: bool, out_prefix: str, seq_len: int):

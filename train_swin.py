@@ -73,13 +73,14 @@ def setup(args):
 
     # loss function adopts paper "Asymmetric Loss For Multi-Label Classification".
     loss_func = AsymmetricLossMultiLabel(gamma_pos = asl_gamma_pos, gamma_neg = asl_gamma_neg, clip = asl_clip, eps = asl_eps)
-    testset = CustomDataSet("./data/", atcg_len, None, False, args.half_opt)
+    transform = lambda x: x - 0.5
+    testset = CustomDataSet("./data/", atcg_len, transform, False, args.half_opt)
     
     ret = {'model': swin_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
     if is_eval:
         swin_model.eval()
     else:
-        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, None, True, args.half_opt)
+        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt)
         lec_sch = LECosineAnnealingSmoothRestart(args)
         opt = optim.AdamW(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999), weight_decay = weight_decay)
         epochs = args.full_epochs + args.cooldown_epochs
@@ -136,7 +137,7 @@ def train(train_kwargs):
                 loss.backward()
                 opt.step()
             total_loss += loss
-            local_correct_num, total_num, all_classes = acc_calculate(pred_y, batch_y, args.pos_threshold)
+            local_correct_num, total_num, all_classes = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
             train_correct_num += local_correct_num
             train_full_num += total_num
             if args.train_verbose > 0 and i % args.train_verbose == 0:
@@ -199,7 +200,7 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
             else:
                 pred_y = model.forward(batch_x)
                 loss: torch.Tensor = loss_func(pred_y, batch_y)
-            local_correct_num, batch_pos_num, full_num = acc_calculate(pred_y, batch_y, args.pos_threshold)
+            local_correct_num, batch_pos_num, full_num = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
             target_pos_num += batch_pos_num
             pred_pos_num += local_correct_num
             total_loss += loss

@@ -37,6 +37,7 @@ def nan_hook(self, output):
             raise RuntimeError(f"Found NAN in output {i} at indices: ", nan_mask.nonzero(), "where:", out[nan_mask.nonzero()[:, 0].unique(sorted=True)])
 
 def acc_calculate(pred_y: torch.Tensor, target_y: torch.Tensor, split = 0.5):
+    pred_y = torch.sigmoid(pred_y)
     gt_labels = target_y > split
     positives = pred_y > split
     correct_class = (gt_labels == positives)

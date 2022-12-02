@@ -97,9 +97,9 @@ class PatchEmbeddings(nn.Module):
         self.win_size = win_size
         
         self.convs = nn.Sequential(
-            *PatchEmbeddings.makeConv1D(input_channel, out_channels, ksize),
-            *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize),
-            *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize, act = norm_layer),
+            *PatchEmbeddings.makeConv1D(input_channel, out_channels >> 1, ksize),
+            *PatchEmbeddings.makeConv1D(out_channels >> 1, out_channels, ksize),
+            *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize, norm = norm_layer),
         )
 
     # TODO: dataset is not correct (C should be dim0, L should be dim1)
@@ -155,14 +155,14 @@ class SwinTransformer(nn.Module):
         # final channel 768, maybe it is too narrow
         self.classify = nn.Sequential(
             nn.Linear(emb_dim, emb_dim << 1),
+            nn.Dropout(args.class_dropout),
             nn.ReLU(),
             nn.Linear(emb_dim << 1, 2000),
             nn.Dropout(args.class_dropout),
             nn.ReLU(),
             nn.Linear(2000, 2000),
-            nn.Dropout(args.class_dropout),
-            nn.Sigmoid()
         )
+        # No sigmoid during classification (since there is one during AFL)
         self.apply(self.init_weight)
 
     def pad10(self, X: torch.Tensor) -> torch.Tensor:
