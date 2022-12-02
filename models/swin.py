@@ -26,7 +26,7 @@ def makeMLP(in_chan, mlp_dropout):
 class SwinTransformerLayer(nn.Module):
     # emb_dim should be the integer multiple of 16 (which will be fine)
     # notice that, atcg_len here is actually modified (according to each layer, after merging and padding)
-    def __init__(self, atcg_len, win_size = 10, emb_dim = 96, head_num = 4, mlp_dropout=0.1, path_drop=0.1, patch_merge = False) -> None:
+    def __init__(self, atcg_len, win_size = 10, emb_dim = 144, head_num = 4, mlp_dropout=0.1, path_drop=0.1, patch_merge = False) -> None:
         super().__init__()
         self.win_size = win_size
         self.emb_dim = emb_dim
@@ -92,20 +92,24 @@ class PatchEmbeddings(nn.Module):
         return layer
     
     # TODO: input channel is yet to-be-decided (whether to use pre-encoding is not decided)
-    def __init__(self, ksize = 3, win_size = 10, out_channels = 48, input_channel = 4, norm_layer = None) -> None:
+    def __init__(self, ksize = 5, win_size = 10, out_channels = 48, input_channel = 4) -> None:
         super().__init__()
         self.win_size = win_size
         
+        self.initial_mapping = nn.Linear(input_channel, out_channels >> 2, bias = False)
+        
         self.convs = nn.Sequential(
-            *PatchEmbeddings.makeConv1D(input_channel, out_channels >> 1, ksize),
+            *PatchEmbeddings.makeConv1D(out_channels >> 2, out_channels >> 1, ksize),
             *PatchEmbeddings.makeConv1D(out_channels >> 1, out_channels, ksize),
-            *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize, norm = norm_layer),
+            *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize, act = None),
         )
 
     # TODO: dataset is not correct (C should be dim0, L should be dim1)
     def forward(self, X:torch.Tensor) -> torch.Tensor:
+        X = X.transpose(-1, -2)
+        X = self.initial_mapping(X).transpose(-1, -2)
         X = self.convs(X)
-        X = X.permute(0, 2, 1)      # (N, C, L) to (N, L, C)
+        X = X.transpose(-1, -2)      # (N, C, L) to (N, L, C)
         return X
         # output x is (N, win_num, win_size (typically 10), C)
 
@@ -133,12 +137,13 @@ class SwinTransformer(nn.Module):
         self.head_num = head_num
         current_img_size = atcg_len
         
-        self.patch_embed = PatchEmbeddings(3, win_size, emb_dim, 4)
+        self.patch_embed = PatchEmbeddings(5, win_size, emb_dim, 4)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
         # input image_size / 4, output_imgae_size / 4
         self.swin_layers = nn.ModuleList([])
         # 96 144 216 324 -> 486
+        # 144 216 324 486 729
         num_layers = (2, 2, 4, 2)
         
         for i, num_layer in enumerate(num_layers):
@@ -157,10 +162,10 @@ class SwinTransformer(nn.Module):
             nn.Linear(emb_dim, emb_dim << 1),
             nn.Dropout(args.class_dropout),
             nn.ReLU(),
-            nn.Linear(emb_dim << 1, 2000),
+            nn.Linear(emb_dim << 1, 2000, bias = False),
             nn.Dropout(args.class_dropout),
             nn.ReLU(),
-            nn.Linear(2000, 2000),
+            nn.Linear(2000, 2000, bias = False),
         )
         # No sigmoid during classification (since there is one during AFL)
         self.apply(self.init_weight)

@@ -55,7 +55,7 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
-    swin_model = SwinTransformer(atcg_len, args)
+    swin_model = SwinTransformer(atcg_len, args, emb_dim = 144)
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
