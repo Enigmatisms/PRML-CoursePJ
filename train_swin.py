@@ -55,7 +55,7 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
-    swin_model = SwinTransformer(atcg_len, args, emb_dim = 144)
+    swin_model = SwinTransformer(atcg_len, args, emb_dim = 96)
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
@@ -82,7 +82,7 @@ def setup(args):
     else:
         trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt)
         lec_sch = LECosineAnnealingSmoothRestart(args)
-        opt = optim.AdamW(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999), weight_decay = weight_decay)
+        opt = optim.RMSprop(params = swin_model.parameters(), lr = lec_sch.lr(epoch))
         epochs = args.full_epochs + args.cooldown_epochs
         writer = get_summary_writer(epochs, del_dir)
 
@@ -161,14 +161,15 @@ def train(train_kwargs):
         print(f"Traning Epoch: {ep:4d} / {full_epoch:4d}\ttrain loss: {total_loss.item():.5f}\ttrain acc: {vanilla_acc:.4f}\tlearing rate: {current_lr:.7f}")        
         writer.add_scalar('Loss/Train Avg Loss', total_loss, ep)
         writer.add_scalar('Acc/Train Avg Acc', vanilla_acc, ep)
+        writer.add_scalar('Learning rate', current_lr, ep)
 
-        chkpt_info = {'index': ep, 'max_num': 3, 'dir': default_chkpt_path, 'type': 'baseline', 'ext': 'pt'}
+        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0:
             eval(train_kwargs, ep, resume = True)
     print("Training completed.")
-    model_info = {'index': ep, 'max_num': 3, 'dir': default_chkpt_path, 'type': 'baseline', 'ext': 'pt'}
+    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
     save_model(model, model_info, opt)
 
 def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):

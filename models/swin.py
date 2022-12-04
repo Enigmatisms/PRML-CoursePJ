@@ -16,17 +16,21 @@ from timm.models.layers.drop import DropPath
 
 def makeMLP(in_chan, mlp_dropout):
     return nn.Sequential(
-        nn.Linear(in_chan, 4 * in_chan),
+        nn.Linear(in_chan, 2 * in_chan),
         nn.GELU(),
         nn.Dropout(mlp_dropout),
-        nn.Linear(4 * in_chan, in_chan),
+        nn.Linear(2 * in_chan, in_chan),
         nn.Dropout(mlp_dropout)
     )
 
 class SwinTransformerLayer(nn.Module):
     # emb_dim should be the integer multiple of 16 (which will be fine)
     # notice that, atcg_len here is actually modified (according to each layer, after merging and padding)
-    def __init__(self, atcg_len, win_size = 10, emb_dim = 144, head_num = 4, mlp_dropout=0.1, path_drop=0.1, patch_merge = False) -> None:
+    def __init__(
+        self, atcg_len, win_size = 10, emb_dim = 144, head_num = 4, 
+        mlp_dropout=0.1, path_drop=0.1, att_drop=0.1, proj_drop=0.1,
+        patch_merge = False
+    ) -> None:
         super().__init__()
         self.win_size = win_size
         self.emb_dim = emb_dim
@@ -39,8 +43,8 @@ class SwinTransformerLayer(nn.Module):
         self.post_ln = nn.LayerNorm(emb_dim)
         self.head_num = head_num
         self.mlp = makeMLP(emb_dim, mlp_dropout)
-        self.win_msa = WinMSA(win_size, emb_dim, head_num)
-        self.swin_msa = SwinMSA(atcg_len, win_size, emb_dim, head_num)
+        self.win_msa = WinMSA(win_size, emb_dim, head_num, att_drop, proj_drop)
+        self.swin_msa = SwinMSA(atcg_len, win_size, emb_dim, head_num, att_drop, proj_drop)
         self.merge_ln = None
         self.patch_merge = patch_merge
         if patch_merge == True:
@@ -122,13 +126,13 @@ class SwinTransformer(nn.Module):
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.Parameter):
             nn.init.kaiming_normal_(m)
-        elif isinstance(m, nn.Conv2d):
+        elif isinstance(m, nn.Conv1d):
             nn.init.kaiming_normal_(m.weight)
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
     def __init__(self, atcg_len, args, win_size = 10, emb_dim = 96, 
-        head_num = (3, 6, 12, 18),
+        head_num = (3, 6, 6, 6),
     ) -> None:
         super().__init__()
         self.win_size = win_size
@@ -140,32 +144,40 @@ class SwinTransformer(nn.Module):
         self.patch_embed = PatchEmbeddings(5, win_size, emb_dim, 4)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
-        # input image_size / 4, output_imgae_size / 4
+        # input image_size / 4, output_image_size / 4
         self.swin_layers = nn.ModuleList([])
-        # 96 144 216 324 -> 486
-        # 144 216 324 486 729
-        num_layers = (2, 2, 4, 2)
+        # 96 144 216 324    -> 486
+        num_layers = (2, 2, 2, 2)
         
         for i, num_layer in enumerate(num_layers):
             num_layer = num_layers[i]
             num_head = head_num[i]
             for _ in range(num_layer - 1):
-                self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_dropout))
+                self.swin_layers.append(
+                    SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, 
+                        args.mlp_dropout, args.path_dropout, args.att_dropout, args.proj_dropout)
+                )
 
             # This should be more focused
-            self.swin_layers.append(SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, args.mlp_dropout, args.path_dropout, True))
+            self.swin_layers.append(
+                SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, 
+                    args.mlp_dropout, args.path_dropout, args.att_dropout, args.proj_dropout, True)
+            )
             current_img_size >>= 1
             current_img_size = self.length_pad10(current_img_size)
             emb_dim = emb_dim // 2 * 3
-        # final channel 768, maybe it is too narrow
+        emb_dim_2 = emb_dim << 1
         self.classify = nn.Sequential(
-            nn.Linear(emb_dim, emb_dim << 1),
+            nn.Linear(emb_dim, emb_dim_2),
             nn.Dropout(args.class_dropout),
-            nn.ReLU(),
-            nn.Linear(emb_dim << 1, 2000, bias = False),
+            nn.GELU(),
+            nn.Linear(emb_dim_2, emb_dim_2),
             nn.Dropout(args.class_dropout),
-            nn.ReLU(),
-            nn.Linear(2000, 2000, bias = False),
+            nn.GELU(),
+            nn.Linear(emb_dim_2, emb_dim_2),
+            nn.Dropout(args.class_dropout),
+            nn.GELU(),
+            nn.Linear(emb_dim_2, 2000),
         )
         # No sigmoid during classification (since there is one during AFL)
         self.apply(self.init_weight)
@@ -180,7 +192,7 @@ class SwinTransformer(nn.Module):
     def length_pad10(self, length: int) -> int:
         residual = length % self.win_size
         if residual:
-            return length + residual
+            return length + self.win_size - residual
         return length
 
     def load(self, load_path:str, opt = None, other_stuff = None):

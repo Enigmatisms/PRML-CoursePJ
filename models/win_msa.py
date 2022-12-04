@@ -80,8 +80,12 @@ class WinMSA(nn.Module):
 
 # default invariant shift: win_size / 2
 class SwinMSA(WinMSA):
-    def __init__(self, atcg_len, win_size = 10, emb_dim = 96, head_num = 4) -> None:
-        super().__init__(win_size, emb_dim, head_num)
+    def __init__(self, atcg_len, win_size = 10, emb_dim = 96, 
+        head_num = 4,
+        att_drop = 0.1, 
+        proj_drop = 0.1, 
+    ) -> None:
+        super().__init__(win_size, emb_dim, head_num, att_drop, proj_drop)
         self.win_num = atcg_len // win_size
         # note that if win_size is odd, implementation will be the previous one, in which "half_att_size" is truely att_size / 2 
         self.register_buffer('att_mask', self.getAttentionMask())
@@ -115,4 +119,6 @@ if __name__ == "__main__":
     for i in range(mask.shape[0]):
         plt.figure(i)
         plt.imshow(mask[i])
+        print(mask[i])
     plt.show()
+    WinMSA.getIndex(10)

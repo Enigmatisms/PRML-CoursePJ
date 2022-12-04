@@ -11,7 +11,7 @@ def get_opts():
     # training parameters
     parser.add_argument("--seed", type = int, default = 0, help = "Random seed to use")
     parser.add_argument("--full_epochs", type = int, default = 300, help = "Training lasts for . epochs (wo warmup and cooldown)")
-    parser.add_argument("--warmup_epochs", type = int, default = 8, help = "Warm up initialization epoch number")
+    parser.add_argument("--warmup_epochs", type = int, default = 0, help = "Warm up initialization epoch number")
     parser.add_argument("--cooldown_epochs", type = int, default = 60, help = "Epochs for lr cooldown")
     parser.add_argument("--train_eval_time", type = int, default = 1, help = "Evaluate every <x> epoch(s) during training")
     parser.add_argument("--max_ckpt_num", type = int, default = 3, help = "Maximum number of checkpoint that can be stored")
@@ -32,14 +32,16 @@ def get_opts():
     parser.add_argument("--mlp_dropout", type = float, default = 0.05, help = "Dropout for transformer MLP")
     parser.add_argument("--path_dropout", type = float, default = 0.05, help = "Random path dropout rate")
     parser.add_argument("--class_dropout", type = float, default = 0.05, help = "Random path dropout rate")
+    parser.add_argument("--att_dropout", type = float, default = 0.05, help = "Attention module dropout rate")
+    parser.add_argument("--proj_dropout", type = float, default = 0.05, help = "Projection (after att) dropout rate")
     parser.add_argument("--adam_wdecay", type = float, default = 3e-2, help = "Weight decay for AdamW")
 
     # asymmetrical loss parameters
     # TODO: defaults should be modified
     parser.add_argument("--asl_gamma_pos", type = float, default = 0.0, help = "asl gamma pos")
-    parser.add_argument("--asl_gamma_neg", type = float, default = 5.0, help = "asl gamma neg")
+    parser.add_argument("--asl_gamma_neg", type = float, default = 4.0, help = "asl gamma neg")
     parser.add_argument("--asl_eps", type = float, default = 1e-8, help = "asl epsilon")
-    parser.add_argument("--asl_clip", type = float, default = 0.05, help = "asl clipping")
+    parser.add_argument("--asl_clip", type = float, default = 0.02, help = "asl clipping")
 
     # lr scheduler parameters
     parser.add_argument("--cosine_folds", type = int, default = 4, help = "How many periods the cosine scheduler should have")
