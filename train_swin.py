@@ -55,7 +55,7 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
-    swin_model = SwinTransformer(atcg_len, args, emb_dim = 96)
+    swin_model = SwinTransformer(atcg_len, args, emb_dim = 128)
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
@@ -82,7 +82,7 @@ def setup(args):
     else:
         trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt)
         lec_sch = LECosineAnnealingSmoothRestart(args)
-        opt = optim.RMSprop(params = swin_model.parameters(), lr = lec_sch.lr(epoch))
+        opt = optim.Adam(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999))
         epochs = args.full_epochs + args.cooldown_epochs
         writer = get_summary_writer(epochs, del_dir)
 
