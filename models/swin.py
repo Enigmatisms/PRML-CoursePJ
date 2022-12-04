@@ -22,6 +22,16 @@ def makeMLP(in_chan, mlp_dropout):
         nn.Linear(2 * in_chan, in_chan),
         nn.Dropout(mlp_dropout)
     )
+    
+def makeConv1D(in_chan, out_chan, ksize = 3, act = nn.GELU(), norm = None, max_pool = 0, padding = -1):
+    layer = [nn.Conv1d(in_chan, out_chan, kernel_size = ksize, padding = ksize >> 1 if padding < 0 else padding)]
+    if norm is not None:
+        layer.append(norm)
+    if max_pool > 0:
+        layer.append(nn.MaxPool1d(max_pool))
+    if act is not None:
+        layer.append(act)
+    return layer
 
 class SwinTransformerLayer(nn.Module):
     # emb_dim should be the integer multiple of 16 (which will be fine)
@@ -87,6 +97,7 @@ class SwinTransformerLayer(nn.Module):
     'A linear embedding layer is applied on this raw-valued feature to project it to an arbitrary dimension'
 """
 class PatchEmbeddings(nn.Module):
+<<<<<<< HEAD
     def makeConv1D(in_chan, out_chan, ksize = 3, act = nn.GELU(), norm = None, max_pool = 0):
         layer = [nn.Conv1d(in_chan, out_chan, kernel_size = ksize, padding = ksize >> 1)]
         if norm is not None:
@@ -99,24 +110,33 @@ class PatchEmbeddings(nn.Module):
     
     # TODO: input channel is yet to-be-decided (whether to use pre-encoding is not decided)
     def __init__(self, ksize = 5, out_channels = 96, input_channel = 4, max_pool = 0) -> None:
+=======
+
+    
+    # TODO: input channel is yet to-be-decided (whether to use pre-encoding is not decided)
+    def __init__(self, ksize = 5, out_channels = 48, input_channel = 4) -> None:
+>>>>>>> full convolution version is working
         super().__init__()
         self.initial_mapping = nn.Linear(input_channel, out_channels >> 2, bias = False)
         
         self.convs = nn.Sequential(
+<<<<<<< HEAD
             *PatchEmbeddings.makeConv1D(out_channels >> 2, out_channels, ksize, norm = nn.BatchNorm1d(out_channels)),
             *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize, norm = nn.BatchNorm1d(out_channels), max_pool = max_pool),
             *PatchEmbeddings.makeConv1D(out_channels, out_channels, norm = nn.BatchNorm1d(out_channels), max_pool = max_pool),
             *PatchEmbeddings.makeConv1D(out_channels, out_channels, act = None),
+=======
+            *makeConv1D(out_channels >> 2, out_channels >> 1, ksize, norm = nn.BatchNorm1d(out_channels >> 1), padding = 0),
+            *makeConv1D(out_channels >> 1, out_channels, ksize, norm = nn.BatchNorm1d(out_channels), padding = 0),
+            *makeConv1D(out_channels, out_channels, ksize, norm = nn.BatchNorm1d(out_channels), padding = 0),
+>>>>>>> full convolution version is working
         )
 
-    # TODO: dataset is not correct (C should be dim0, L should be dim1)
     def forward(self, X:torch.Tensor) -> torch.Tensor:
         X = X.transpose(-1, -2)
         X = self.initial_mapping(X).transpose(-1, -2)
         X = self.convs(X)
-        X = X.transpose(-1, -2)      # (N, C, L) to (N, L, C)
         return X
-        # output x is (N, win_num, win_size (typically 10), C)
 
 class SwinTransformer(nn.Module):
     @staticmethod
@@ -135,15 +155,19 @@ class SwinTransformer(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+<<<<<<< HEAD
             
     def __init__(self, atcg_len, args, win_size = 10, 
         emb_dim = 96, max_pool = 0,
         head_num = (3, 12),
     ) -> None:
+=======
+    def __init__(self, atcg_len, args, emb_dim = 128) -> None:
+>>>>>>> full convolution version is working
         super().__init__()
-        self.win_size = win_size
         self.emb_dim = emb_dim
         self.atcg_len = atcg_len
+<<<<<<< HEAD
         self.head_num = head_num
         current_seq_len = atcg_len if max_pool == 0 else atcg_len // (max_pool ** 2)
         
@@ -179,14 +203,36 @@ class SwinTransformer(nn.Module):
             nn.BatchNorm1d(emb_dim),
             nn.GELU()
         )
+=======
+        linear_dim = emb_dim << 2
+        
+        self.patch_embed = PatchEmbeddings(3, emb_dim, 4)
+        self.avg_pool = nn.AdaptiveMaxPool1d(1)
+        self.emb_drop = nn.Dropout(args.emb_dropout)
+        self.convs = nn.Sequential(
+            *makeConv1D(emb_dim, emb_dim << 1, 3, norm = nn.BatchNorm1d(emb_dim << 1), max_pool = 2),
+            *makeConv1D(emb_dim << 1, linear_dim, 3, norm = nn.BatchNorm1d(linear_dim), max_pool = 2),
+            *makeConv1D(linear_dim, linear_dim, 3, norm = nn.BatchNorm1d(linear_dim), max_pool = 2),
+            *makeConv1D(linear_dim, linear_dim, 3, norm = nn.BatchNorm1d(linear_dim), max_pool = 2),
+            *makeConv1D(linear_dim, linear_dim, 3, norm = nn.BatchNorm1d(linear_dim)),
+        )
+
+>>>>>>> full convolution version is working
         self.classify = nn.Sequential(
-            nn.Linear(emb_dim, emb_dim_2),
+            nn.Linear(linear_dim, linear_dim << 1),
             nn.Dropout(args.class_dropout),
             nn.GELU(),
+<<<<<<< HEAD
             nn.Linear(emb_dim_2, emb_dim),
             nn.Dropout(args.class_dropout),
             nn.GELU(),
             nn.Linear(emb_dim, 2000),
+=======
+            nn.Linear(linear_dim << 1, linear_dim),
+            nn.Dropout(args.class_dropout),
+            nn.GELU(),
+            nn.Linear(linear_dim, 2000),
+>>>>>>> full convolution version is working
         )
         # No sigmoid during classification (since there is one during AFL)
         self.apply(self.init_weight)
@@ -221,11 +267,15 @@ class SwinTransformer(nn.Module):
         # The input X is of shape (N, C, L) -> (batch, 4, seq_length)
         X = self.patch_embed(X)
         X = self.emb_drop(X)
+<<<<<<< HEAD
         for _, layer in enumerate(self.swin_layers):
             X = self.pad10(X)       # should be tested (if win_num is the multiple of 10, then nothing is padded)
             X = layer(X)
         X = X.transpose(-1, -2)
         X = self.conv_output(X)
+=======
+        X = self.convs(X)
+>>>>>>> full convolution version is working
         X = self.avg_pool(X).transpose(-1, -2)      # shape after avg pooling: (N, 1, C)
         return self.classify(X).squeeze(dim = 1)    # output is of shape (N, 2000)
     

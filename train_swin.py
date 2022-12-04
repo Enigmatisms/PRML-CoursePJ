@@ -55,7 +55,11 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
+<<<<<<< HEAD
     swin_model = SwinTransformer(atcg_len, args, emb_dim = args.emb_dim, max_pool = args.patch_pool)
+=======
+    swin_model = SwinTransformer(atcg_len, args, emb_dim = 128)
+>>>>>>> full convolution version is working
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
