@@ -18,10 +18,11 @@ from torch.cuda.amp.grad_scaler import GradScaler
 
 from utils.opt import get_opts
 from utils.train_helper import *
-from models.swin import SwinTransformer
 from utils.dataset import CustomDataSet
+from models.seq_pred import SeqPredictor
 from utils.utils import get_summary_writer, save_model
 from utils.cosine_anneal import LECosineAnnealingSmoothRestart
+from timm.data.loader import create_loader
 
 default_chkpt_path = "./check_points/"
 default_model_path = "./model/"
@@ -55,7 +56,7 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
-    swin_model = SwinTransformer(atcg_len, args, emb_dim = 128)
+    swin_model = SeqPredictor(args, emb_dim = 128)
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
@@ -80,9 +81,9 @@ def setup(args):
     if is_eval:
         swin_model.eval()
     else:
-        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt)
+        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt, mix_up=args.mixup)
         lec_sch = LECosineAnnealingSmoothRestart(args)
-        opt = optim.Adam(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999))
+        opt = optim.AdamW(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999), weight_decay = weight_decay)
         epochs = args.full_epochs + args.cooldown_epochs
         writer = get_summary_writer(epochs, del_dir)
 
@@ -104,11 +105,11 @@ def train(train_kwargs):
     full_epoch  = train_kwargs['full_epoch'] 
     loss_func   = train_kwargs['loss_func']
 
-    model: SwinTransformer\
+    model: SeqPredictor\
                 = train_kwargs['model']   
     lec_sch: LECosineAnnealingSmoothRestart\
-                = train_kwargs['opt_sch']     
-
+                = train_kwargs['opt_sch']    
+                
     train_loader    = DataLoader(trainset, args.batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
     model = model.cuda()
 
@@ -116,6 +117,8 @@ def train(train_kwargs):
     
     loader_len = len(train_loader)
     for ep in tqdm.tqdm(range(epoch, full_epoch)):
+        if epoch > args.mixup_epochs:
+            train_loader.dataset.disable_mixup()
         train_full_num = 0
         train_correct_num = 0
         total_loss = 0
@@ -176,7 +179,7 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
     args        = eval_kwargs['args']
     testset     = eval_kwargs['test_set']   
     loss_func   = eval_kwargs['loss_func']
-    model: SwinTransformer\
+    model: SeqPredictor\
                 = eval_kwargs['model']   
 
     test_loader = DataLoader(testset, args.test_batch_size, shuffle = False, num_workers = 2, drop_last = False)
@@ -187,8 +190,7 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
     pred_pos_num = 0
     test_full_num = 0
     total_loss = 0
-    if resume:
-        model.eval()
+    model.eval()
     with torch.no_grad():
         for i, (batch_x, batch_y) in enumerate(test_loader):
             batch_x = batch_x.cuda()
