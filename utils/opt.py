@@ -10,12 +10,14 @@ def get_opts():
     parser = argparse.ArgumentParser()
     # training parameters
     parser.add_argument("--seed", type = int, default = 0, help = "Random seed to use")
-    parser.add_argument("--full_epochs", type = int, default = 300, help = "Training lasts for . epochs (wo warmup and cooldown)")
+    parser.add_argument("--full_epochs", type = int, default = 600, help = "Training lasts for . epochs (wo warmup and cooldown)")
     parser.add_argument("--warmup_epochs", type = int, default = 0, help = "Warm up initialization epoch number")
-    parser.add_argument("--cooldown_epochs", type = int, default = 60, help = "Epochs for lr cooldown")
+    parser.add_argument("--cooldown_epochs", type = int, default = 100, help = "Epochs for lr cooldown")
     parser.add_argument("--train_eval_time", type = int, default = 1, help = "Evaluate every <x> epoch(s) during training")
     parser.add_argument("--max_ckpt_num", type = int, default = 3, help = "Maximum number of checkpoint that can be stored")
     parser.add_argument("--train_verbose", type = int, default = 0, help = "Whether to output anything within an epoch (0 means no, x > 0 means output every x batches)")
+    parser.add_argument("--mixup_epochs", type = int, default = 300, help = "Use mixup data augmentation for specified epochs")
+    parser.add_argument("--mixup", type = float, default = 0.25, help = "Whether to use mixup data augmentation")
 
     # dataset & loader parameters
     parser.add_argument("--load_path", type = str, default = "", help = "Load path of model (or checkpoint), required when eval")
@@ -29,11 +31,7 @@ def get_opts():
 
     # model parameters
     parser.add_argument("--emb_dropout", type = float, default = 0.05, help = "Convolutional embedding dropout")
-    parser.add_argument("--mlp_dropout", type = float, default = 0.05, help = "Dropout for transformer MLP")
-    parser.add_argument("--path_dropout", type = float, default = 0.05, help = "Random path dropout rate")
     parser.add_argument("--class_dropout", type = float, default = 0.05, help = "Random path dropout rate")
-    parser.add_argument("--att_dropout", type = float, default = 0.05, help = "Attention module dropout rate")
-    parser.add_argument("--proj_dropout", type = float, default = 0.05, help = "Projection (after att) dropout rate")
     parser.add_argument("--adam_wdecay", type = float, default = 3e-2, help = "Weight decay for AdamW")
     parser.add_argument("--emb_dim", type = int, default = 120, help = "ATCG convolution embedding dimension")
     parser.add_argument("--patch_pool", type = int, default = 0, help = "Kernel size of max pooling after input conv layer (0 for no max pooling)")
@@ -46,7 +44,7 @@ def get_opts():
     parser.add_argument("--asl_clip", type = float, default = 0.05, help = "asl clipping")
 
     # lr scheduler parameters
-    parser.add_argument("--cosine_folds", type = int, default = 4, help = "How many periods the cosine scheduler should have")
+    parser.add_argument("--cosine_folds", type = int, default = 5, help = "How many periods the cosine scheduler should have")
     parser.add_argument("--lr_max_start", type = float, default = 0.04, help = "The starting lr of upper bound lr")
     parser.add_argument("--lr_max_end", type = float, default = 0.006, help = "The ending lr of upper bound lr")
     parser.add_argument("--lr_min_start", type = float, default = 0.006, help = "The starting lr of lower bound lr")
