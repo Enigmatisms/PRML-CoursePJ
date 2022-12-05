@@ -35,13 +35,15 @@ def get_opts():
     parser.add_argument("--att_dropout", type = float, default = 0.05, help = "Attention module dropout rate")
     parser.add_argument("--proj_dropout", type = float, default = 0.05, help = "Projection (after att) dropout rate")
     parser.add_argument("--adam_wdecay", type = float, default = 3e-2, help = "Weight decay for AdamW")
+    parser.add_argument("--emb_dim", type = int, default = 120, help = "ATCG convolution embedding dimension")
+    parser.add_argument("--patch_pool", type = int, default = 0, help = "Kernel size of max pooling after input conv layer (0 for no max pooling)")
 
     # asymmetrical loss parameters
     # TODO: defaults should be modified
     parser.add_argument("--asl_gamma_pos", type = float, default = 0.0, help = "asl gamma pos")
     parser.add_argument("--asl_gamma_neg", type = float, default = 4.0, help = "asl gamma neg")
     parser.add_argument("--asl_eps", type = float, default = 1e-8, help = "asl epsilon")
-    parser.add_argument("--asl_clip", type = float, default = 0.02, help = "asl clipping")
+    parser.add_argument("--asl_clip", type = float, default = 0.05, help = "asl clipping")
 
     # lr scheduler parameters
     parser.add_argument("--cosine_folds", type = int, default = 4, help = "How many periods the cosine scheduler should have")

@@ -53,7 +53,6 @@ class WinMSA(nn.Module):
         # typical input (batch_size, L / 10 (e.g., 500 / 10), 10, channel)
         # output (3, batch, win, head, seq, emb_dim/head_num) 0  1      2       3       4               5
         # actually, these are all the same since 2D image is already flattened
-        # TODO: head num can not be devided (multiple)
         qkvs:torch.Tensor = self.qkv_attn(X).view(batch_size, win_num, seq_len, 3, self.head_num, self.emb_dim_h_k).permute(3, 0, 1, 4, 2, 5)
         q, k, v = qkvs[0], qkvs[1], qkvs[2]
         

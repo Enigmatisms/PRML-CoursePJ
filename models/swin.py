@@ -37,7 +37,7 @@ class SwinTransformerLayer(nn.Module):
         self.atcg_len = atcg_len
         self.win_num = atcg_len // win_size
         
-        self.merge_lin = nn.Linear(emb_dim << 1, emb_dim * 3 // 2)      # 1.5
+        self.merge_lin = nn.Linear(emb_dim << 1, emb_dim << 1)      # 1.5
         self.drop_path = DropPath(path_drop)
         self.pre_ln = nn.LayerNorm(emb_dim)
         self.post_ln = nn.LayerNorm(emb_dim)
@@ -52,7 +52,6 @@ class SwinTransformerLayer(nn.Module):
 
     def merge(self, X:torch.Tensor)->torch.Tensor:
         # input shape (N, win_num, L, C), L is actually 10 here
-        X = einops.rearrange(X, 'N win_l L C -> N (win_l L) C', win_l = self.win_num)
         X = einops.rearrange(X, 'N (L m) C -> N L (m C)', m = 2)
         X = self.merge_lin(self.merge_ln(X))
         return X    
@@ -70,15 +69,16 @@ class SwinTransformerLayer(nn.Module):
         X = einops.rearrange(X, 'N (m L) C -> N m L C', L = self.win_size)       
         X = self.layerForward(X)
         # shifting, do not forget this
+        X = einops.rearrange(X, 'N m L C -> N (m L) C', L = self.win_size)  # merge dim 1/2 should be performed before rolling       
         X = torch.roll(X, shifts = -(self.win_size >> 1), dims = -2)
+        X = einops.rearrange(X, 'N (m L) C -> N m L C', L = self.win_size)       
         X = self.layerForward(X, use_swin = True)
         # inverse shifting procedure
+        X = einops.rearrange(X, 'N m L C -> N (m L) C', L = self.win_size)
         X = torch.roll(X, shifts = self.win_size >> 1, dims = -2)
         # after attention op, tensor must be reshape back to the original shape
         if self.patch_merge:
             return self.merge(X)
-        else:
-            X = einops.rearrange(X, 'N m L C -> N (m L) C')       
         return X
 
 """
@@ -87,25 +87,26 @@ class SwinTransformerLayer(nn.Module):
     'A linear embedding layer is applied on this raw-valued feature to project it to an arbitrary dimension'
 """
 class PatchEmbeddings(nn.Module):
-    def makeConv1D(in_chan, out_chan, ksize = 3, act = nn.GELU(), norm = None):
+    def makeConv1D(in_chan, out_chan, ksize = 3, act = nn.GELU(), norm = None, max_pool = 0):
         layer = [nn.Conv1d(in_chan, out_chan, kernel_size = ksize, padding = ksize >> 1)]
         if norm is not None:
             layer.append(norm)
+        if max_pool > 0:
+            layer.append(nn.MaxPool1d(max_pool))
         if act is not None:
             layer.append(act)
         return layer
     
     # TODO: input channel is yet to-be-decided (whether to use pre-encoding is not decided)
-    def __init__(self, ksize = 5, win_size = 10, out_channels = 48, input_channel = 4) -> None:
+    def __init__(self, ksize = 5, out_channels = 96, input_channel = 4, max_pool = 0) -> None:
         super().__init__()
-        self.win_size = win_size
-        
         self.initial_mapping = nn.Linear(input_channel, out_channels >> 2, bias = False)
         
         self.convs = nn.Sequential(
-            *PatchEmbeddings.makeConv1D(out_channels >> 2, out_channels >> 1, ksize),
-            *PatchEmbeddings.makeConv1D(out_channels >> 1, out_channels, ksize),
-            *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize, act = None),
+            *PatchEmbeddings.makeConv1D(out_channels >> 2, out_channels, ksize, norm = nn.BatchNorm1d(out_channels)),
+            *PatchEmbeddings.makeConv1D(out_channels, out_channels, ksize, norm = nn.BatchNorm1d(out_channels), max_pool = max_pool),
+            *PatchEmbeddings.makeConv1D(out_channels, out_channels, norm = nn.BatchNorm1d(out_channels), max_pool = max_pool),
+            *PatchEmbeddings.makeConv1D(out_channels, out_channels, act = None),
         )
 
     # TODO: dataset is not correct (C should be dim0, L should be dim1)
@@ -128,56 +129,61 @@ class SwinTransformer(nn.Module):
             nn.init.kaiming_normal_(m)
         elif isinstance(m, nn.Conv1d):
             nn.init.kaiming_normal_(m.weight)
+        elif isinstance(m, nn.BatchNorm1d):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-    def __init__(self, atcg_len, args, win_size = 10, emb_dim = 96, 
-        head_num = (3, 6, 6, 6),
+            
+    def __init__(self, atcg_len, args, win_size = 10, 
+        emb_dim = 96, max_pool = 0,
+        head_num = (3, 6, 12),
     ) -> None:
         super().__init__()
         self.win_size = win_size
         self.emb_dim = emb_dim
         self.atcg_len = atcg_len
         self.head_num = head_num
-        current_img_size = atcg_len
+        current_seq_len = atcg_len if max_pool == 0 else atcg_len // (max_pool ** 2)
         
-        self.patch_embed = PatchEmbeddings(5, win_size, emb_dim, 4)
-        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.patch_embed = PatchEmbeddings(5, emb_dim, 4, max_pool)
+        self.avg_pool = nn.AdaptiveMaxPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
         # input image_size / 4, output_image_size / 4
         self.swin_layers = nn.ModuleList([])
         # 96 144 216 324    -> 486
-        num_layers = (2, 2, 2, 2)
+        num_layers = (2, 4)
         
         for i, num_layer in enumerate(num_layers):
             num_layer = num_layers[i]
             num_head = head_num[i]
             for _ in range(num_layer - 1):
                 self.swin_layers.append(
-                    SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, 
+                    SwinTransformerLayer(current_seq_len, win_size, emb_dim, num_head, 
                         args.mlp_dropout, args.path_dropout, args.att_dropout, args.proj_dropout)
                 )
 
             # This should be more focused
             self.swin_layers.append(
-                SwinTransformerLayer(current_img_size, win_size, emb_dim, num_head, 
+                SwinTransformerLayer(current_seq_len, win_size, emb_dim, num_head, 
                     args.mlp_dropout, args.path_dropout, args.att_dropout, args.proj_dropout, True)
             )
-            current_img_size >>= 1
-            current_img_size = self.length_pad10(current_img_size)
-            emb_dim = emb_dim // 2 * 3
+            current_seq_len >>= 1
+            current_seq_len = self.length_pad10(current_seq_len)
+            emb_dim <<= 1
         emb_dim_2 = emb_dim << 1
         self.classify = nn.Sequential(
             nn.Linear(emb_dim, emb_dim_2),
             nn.Dropout(args.class_dropout),
             nn.GELU(),
-            nn.Linear(emb_dim_2, emb_dim_2),
+            nn.Linear(emb_dim_2, emb_dim),
             nn.Dropout(args.class_dropout),
             nn.GELU(),
-            nn.Linear(emb_dim_2, emb_dim_2),
+            nn.Linear(emb_dim, emb_dim),
             nn.Dropout(args.class_dropout),
             nn.GELU(),
-            nn.Linear(emb_dim_2, 2000),
+            nn.Linear(emb_dim, 2000),
         )
         # No sigmoid during classification (since there is one during AFL)
         self.apply(self.init_weight)
