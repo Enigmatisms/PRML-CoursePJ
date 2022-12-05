@@ -22,7 +22,6 @@ from utils.dataset import CustomDataSet
 from models.seq_pred import SeqPredictor
 from utils.utils import get_summary_writer, save_model
 from utils.cosine_anneal import LECosineAnnealingSmoothRestart
-from timm.data.loader import create_loader
 
 default_chkpt_path = "./check_points/"
 default_model_path = "./model/"
@@ -166,13 +165,13 @@ def train(train_kwargs):
         writer.add_scalar('Acc/Train Avg Acc', vanilla_acc, ep)
         writer.add_scalar('Learning rate', current_lr, ep)
 
-        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
+        chkpt_info = {'index': ep, 'max_num': args.max_ckpt_num, 'dir': default_chkpt_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0:
             eval(train_kwargs, ep, resume = True)
     print("Training completed.")
-    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
+    model_info = {'index': ep, 'max_num': args.max_ckpt_num, 'dir': default_model_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
     save_model(model, model_info, opt)
 
 def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
@@ -221,10 +220,10 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
 
 def main(context: dict):
     if "train_set" in context:
-        print("Swin Transformer 1D training...")
+        print("Shallow Res Conv1D training...")
         train(context)
     else:
-        print("Swin Transformer 1D evaluating...")
+        print("Shallow Res Conv1D evaluating...")
         context['model'] = context['model'].cuda()
         eval(context, 0, False)
 
