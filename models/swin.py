@@ -138,7 +138,7 @@ class SwinTransformer(nn.Module):
             
     def __init__(self, atcg_len, args, win_size = 10, 
         emb_dim = 96, max_pool = 0,
-        head_num = (3, 6, 12),
+        head_num = (3, 12),
     ) -> None:
         super().__init__()
         self.win_size = win_size
@@ -147,13 +147,13 @@ class SwinTransformer(nn.Module):
         self.head_num = head_num
         current_seq_len = atcg_len if max_pool == 0 else atcg_len // (max_pool ** 2)
         
-        self.patch_embed = PatchEmbeddings(5, emb_dim, 4, max_pool)
+        self.patch_embed = PatchEmbeddings(3, emb_dim, 4, max_pool)
         self.avg_pool = nn.AdaptiveMaxPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
         # input image_size / 4, output_image_size / 4
         self.swin_layers = nn.ModuleList([])
         # 96 144 216 324    -> 486
-        num_layers = (2, 4)
+        num_layers = (2, 3)
         
         for i, num_layer in enumerate(num_layers):
             num_layer = num_layers[i]
@@ -173,14 +173,17 @@ class SwinTransformer(nn.Module):
             current_seq_len = self.length_pad10(current_seq_len)
             emb_dim <<= 1
         emb_dim_2 = emb_dim << 1
+        self.conv_output = nn.Sequential(
+            nn.GELU(),
+            nn.Conv1d(emb_dim, emb_dim, 3),
+            nn.BatchNorm1d(emb_dim),
+            nn.GELU()
+        )
         self.classify = nn.Sequential(
             nn.Linear(emb_dim, emb_dim_2),
             nn.Dropout(args.class_dropout),
             nn.GELU(),
             nn.Linear(emb_dim_2, emb_dim),
-            nn.Dropout(args.class_dropout),
-            nn.GELU(),
-            nn.Linear(emb_dim, emb_dim),
             nn.Dropout(args.class_dropout),
             nn.GELU(),
             nn.Linear(emb_dim, 2000),
@@ -216,14 +219,13 @@ class SwinTransformer(nn.Module):
 
     def forward(self, X:torch.Tensor) -> torch.Tensor:
         # The input X is of shape (N, C, L) -> (batch, 4, seq_length)
-        batch_size, _, _ = X.shape 
         X = self.patch_embed(X)
         X = self.emb_drop(X)
         for _, layer in enumerate(self.swin_layers):
             X = self.pad10(X)       # should be tested (if win_num is the multiple of 10, then nothing is padded)
             X = layer(X)
-        channel_num = X.shape[-1]
-        X = X.view(batch_size, -1, channel_num).transpose(-1, -2)
+        X = X.transpose(-1, -2)
+        X = self.conv_output(X)
         X = self.avg_pool(X).transpose(-1, -2)      # shape after avg pooling: (N, 1, C)
         return self.classify(X).squeeze(dim = 1)    # output is of shape (N, 2000)
     

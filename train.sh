@@ -8,7 +8,7 @@ if [ ! -d "./model/" ]; then
     mkdir ./model/
 fi
 
-CUDA_VISIBLE_DEVICES=0 python3 ./train_swin.py --atcg_len 1000 --adam_wdecay 1e-4 \
+CUDA_VISIBLE_DEVICES=1 python3 ./train_swin.py --atcg_len 1000 --adam_wdecay 1e-4 \
     --lr_max_start 3e-4 --lr_max_end 3e-5 --lr_min_start 1e-4 --lr_min_end 1e-5 \
     --pos_threshold 0.5 --emb_dropout 0.0 --mlp_dropout 0.0 --path_dropout 0.0 \
     --class_dropout 0.0 --att_dropout 0.0 --proj_dropout 0.0 --patch_pool 2 \

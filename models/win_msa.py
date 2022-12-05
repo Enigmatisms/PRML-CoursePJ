@@ -59,7 +59,6 @@ class WinMSA(nn.Module):
         # 只有最后一个window存在不为0的attention mask（前一半与后一半不一样）
         # q @ k.T : shape (batch_size, win_num, head_num, seq, seq), att_mask added according to different window position  
         attn = q @ k.transpose(-1, -2) * self.normalize_coeff
-        # print(self.relp_indices.shape, self.positional_bias.shape, seq_len, self.win_size, X.shape, attn.shape)
 
         position_bias = self.positional_bias[self.relp_indices.view(-1)].view(seq_len, seq_len, -1)     # here seq_len = 10
         position_bias = position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww

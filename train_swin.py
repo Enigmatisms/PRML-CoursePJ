@@ -187,8 +187,7 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
     pred_pos_num = 0
     test_full_num = 0
     total_loss = 0
-    if resume:
-        model.eval()
+    model.eval()
     with torch.no_grad():
         for i, (batch_x, batch_y) in enumerate(test_loader):
             batch_x = batch_x.cuda()
