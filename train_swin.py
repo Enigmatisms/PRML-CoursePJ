@@ -165,13 +165,13 @@ def train(train_kwargs):
         writer.add_scalar('Acc/Train Avg Acc', vanilla_acc, ep)
         writer.add_scalar('Learning rate', current_lr, ep)
 
-        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'bn_{args.atcg_len}', 'ext': 'pt'}
+        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'drop_{args.atcg_len}', 'ext': 'pt'}
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0:
             eval(train_kwargs, ep, resume = True)
     print("Training completed.")
-    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'bn_{args.atcg_len}', 'ext': 'pt'}
+    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'drop_{args.atcg_len}', 'ext': 'pt'}
     save_model(model, model_info, opt = opt)
 
 def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):

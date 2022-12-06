@@ -22,14 +22,14 @@ def makeConv1D(in_chan, out_chan, ksize = 3, act = nn.GELU(), norm = None, max_p
     return layer
 
 class PatchEmbeddings(nn.Module):
-    def __init__(self, ksize = 3, ksize_init = 3, out_channels = 128, input_channel = 4) -> None:
+    def __init__(self, ksize = 3, ksize_init = 3, out_channels = 128, input_channel = 4, layer_dropout = 0.1) -> None:
         super().__init__()
         self.initial_mapping = nn.Linear(input_channel, out_channels >> 2, bias = False)
         
         self.convs = nn.Sequential(
             *makeConv1D(out_channels >> 2, out_channels >> 1, ksize_init, norm = nn.BatchNorm1d(out_channels >> 1), padding = 0),
-            *makeConv1D(out_channels >> 1, out_channels, ksize, norm = nn.BatchNorm1d(out_channels), padding = 0),
-            *makeConv1D(out_channels, out_channels, ksize, norm = nn.BatchNorm1d(out_channels), padding = 0),
+            *makeConv1D(out_channels >> 1, out_channels, ksize, norm = nn.Dropout(layer_dropout), padding = 0),
+            *makeConv1D(out_channels, out_channels, ksize, norm = nn.Dropout(layer_dropout), padding = 0),
         )
 
     def forward(self, X:torch.Tensor) -> torch.Tensor:
@@ -55,19 +55,18 @@ class SeqPredictor(nn.Module):
         self.emb_dim = emb_dim
         linear_dim = emb_dim << 2
         
-        self.patch_embed = PatchEmbeddings(3, 17, emb_dim, 4)
+        self.patch_embed = PatchEmbeddings(3, 17, emb_dim, 4, args.layer_dropout)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
         self.conv_layer1 = nn.Sequential(
-            *makeConv1D(emb_dim,        emb_dim << 1,   3, norm = nn.BatchNorm1d(emb_dim << 1), max_pool = 2),
-            *makeConv1D(emb_dim << 1,   linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
-            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
+            *makeConv1D(emb_dim,        emb_dim << 1,   3, norm = nn.Dropout(args.layer_dropout),   max_pool = 2),
+            *makeConv1D(emb_dim << 1,   linear_dim,     3, norm = nn.Dropout(args.layer_dropout),   max_pool = 2),
+            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.Dropout(args.layer_dropout),   max_pool = 2),
         )
         self.conv_layer2 = nn.Sequential(
-            nn.Dropout(args.conv_dropout),
-            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
-            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
-            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim)),
+            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.Dropout(args.layer_dropout),   max_pool = 2),
+            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.Dropout(args.layer_dropout),   max_pool = 2),
+            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.Dropout(args.layer_dropout)),
         )
 
         self.classify = nn.Sequential(

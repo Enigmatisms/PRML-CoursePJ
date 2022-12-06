@@ -33,6 +33,7 @@ def get_opts():
     parser.add_argument("--emb_dropout", type = float, default = 0.05, help = "Convolutional embedding dropout")
     parser.add_argument("--class_dropout", type = float, default = 0.05, help = "Random path dropout rate")
     parser.add_argument("--conv_dropout", type = float, default = 0.05, help = "Random path dropout rate")
+    parser.add_argument("--layer_dropout", type = float, default = 0.05, help = "Random path dropout rate")
     parser.add_argument("--adam_wdecay", type = float, default = 3e-2, help = "Weight decay for AdamW")
 
     # asymmetrical loss parameters
