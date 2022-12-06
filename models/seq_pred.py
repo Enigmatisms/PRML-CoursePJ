@@ -49,31 +49,33 @@ class SeqPredictor(nn.Module):
             nn.init.kaiming_normal_(m)
         elif isinstance(m, nn.Conv1d):
             nn.init.kaiming_normal_(m.weight)
-        elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
-            nn.init.constant_(m.weight, 1.0)
     def __init__(self, args, emb_dim = 128) -> None:
         super().__init__()
         self.emb_dim = emb_dim
         linear_dim = emb_dim << 2
         
-        self.patch_embed = PatchEmbeddings(3, 3, emb_dim, 4)
-        self.avg_pool = nn.AdaptiveMaxPool1d(1)
+        self.patch_embed = PatchEmbeddings(3, 17, emb_dim, 4)
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
-        self.convs = nn.Sequential(
+        self.conv_layer1 = nn.Sequential(
             *makeConv1D(emb_dim,        emb_dim << 1,   3, norm = nn.BatchNorm1d(emb_dim << 1), max_pool = 2),
             *makeConv1D(emb_dim << 1,   linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
+            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
+        )
+        self.conv_layer2 = nn.Sequential(
+            nn.Dropout(args.conv_dropout),
             *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
             *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
             *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim)),
         )
 
         self.classify = nn.Sequential(
+            nn.Dropout(args.class_dropout),
             nn.Linear(linear_dim, linear_dim << 1),
-            nn.Dropout(args.class_dropout),
             nn.GELU(),
-            nn.Linear(linear_dim << 1, linear_dim),
             nn.Dropout(args.class_dropout),
+            nn.Linear(linear_dim << 1, linear_dim),
             nn.GELU(),
             nn.Linear(linear_dim, 2000),
         )
@@ -97,7 +99,8 @@ class SeqPredictor(nn.Module):
         # The input X is of shape (N, C, L) -> (batch, 4, seq_length)
         X = self.patch_embed(X)
         X = self.emb_drop(X)
-        X = self.convs(X)
+        X = self.conv_layer1(X)
+        X = self.conv_layer2(X)
         X = self.avg_pool(X).transpose(-1, -2)      # shape after avg pooling: (N, 1, C)
         return self.classify(X).squeeze(dim = 1)    # output is of shape (N, 2000)
     
