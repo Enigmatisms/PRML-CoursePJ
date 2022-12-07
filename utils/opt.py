@@ -11,13 +11,13 @@ def get_opts():
     # training parameters
     parser.add_argument("--seed", type = int, default = 0, help = "Random seed to use")
     parser.add_argument("--full_epochs", type = int, default = 1000, help = "Training lasts for . epochs (wo warmup and cooldown)")
-    parser.add_argument("--warmup_epochs", type = int, default = 0, help = "Warm up initialization epoch number")
+    parser.add_argument("--warmup_epochs", type = int, default = 10, help = "Warm up initialization epoch number")      # baseline 0
     parser.add_argument("--cooldown_epochs", type = int, default = 100, help = "Epochs for lr cooldown")
     parser.add_argument("--train_eval_time", type = int, default = 1, help = "Evaluate every <x> epoch(s) during training")
     parser.add_argument("--max_ckpt_num", type = int, default = 3, help = "Maximum number of checkpoint that can be stored")
     parser.add_argument("--train_verbose", type = int, default = 0, help = "Whether to output anything within an epoch (0 means no, x > 0 means output every x batches)")
     parser.add_argument("--mixup_epochs", type = int, default = 400, help = "Use mixup data augmentation for specified epochs")
-    parser.add_argument("--mixup", type = float, default = 0.3, help = "Whether to use mixup data augmentation")
+    parser.add_argument("--mixup", type = float, default = 0.4, help = "Whether to use mixup data augmentation")        # baseline 0.35
 
     # dataset & loader parameters
     parser.add_argument("--load_path", type = str, default = "", help = "Load path of model (or checkpoint), required when eval")
@@ -31,16 +31,17 @@ def get_opts():
 
     # model parameters
     parser.add_argument("--emb_dropout", type = float, default = 0.05, help = "Convolutional embedding dropout")
-    parser.add_argument("--class_dropout", type = float, default = 0.05, help = "Random path dropout rate")
-    parser.add_argument("--conv_dropout", type = float, default = 0.05, help = "Random path dropout rate")
+    parser.add_argument("--class_dropout", type = float, default = 0.05, help = "classification layer dropout rate")
+    parser.add_argument("--conv_dropout", type = float, default = 0.05, help = "Conv layer dropout rate")
+    parser.add_argument("--input_dropout", type = float, default = 0.05, help = "input layer (after mapping) dropout rate")
     parser.add_argument("--adam_wdecay", type = float, default = 3e-2, help = "Weight decay for AdamW")
 
     # asymmetrical loss parameters
     # TODO: defaults should be modified
     parser.add_argument("--asl_gamma_pos", type = float, default = 0.0, help = "asl gamma pos")
-    parser.add_argument("--asl_gamma_neg", type = float, default = 4.0, help = "asl gamma neg")
+    parser.add_argument("--asl_gamma_neg", type = float, default = 4.0, help = "asl gamma neg")     # baseline 5.0
     parser.add_argument("--asl_eps", type = float, default = 1e-8, help = "asl epsilon")
-    parser.add_argument("--asl_clip", type = float, default = 0.05, help = "asl clipping")
+    parser.add_argument("--asl_clip", type = float, default = 0.1, help = "asl clipping")           # baseline 0.05
 
     # lr scheduler parameters
     parser.add_argument("--cosine_folds", type = int, default = 5, help = "How many periods the cosine scheduler should have")
