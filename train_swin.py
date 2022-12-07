@@ -57,6 +57,7 @@ def setup(args):
     
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     swin_model = SwinTransformer(atcg_len, args, emb_dim = args.emb_dim, max_pool = args.patch_pool)
 =======
     swin_model = SwinTransformer(atcg_len, args, emb_dim = 128)
@@ -64,18 +65,21 @@ def setup(args):
 =======
     swin_model = SeqPredictor(args, emb_dim = 128)
 >>>>>>> Baseline retrain
+=======
+    seq_model = SeqPredictor(args, emb_dim = 128)
+>>>>>>> New backbone, trains successfully yet overfitted
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
     else:
         load_path = os.path.join(default_chkpt_path if not args.load_model else default_model_path, args.load_path)
         if os.path.exists(load_path):
-            epoch = swin_model.load(load_path, opt, ["epoch"])
+            epoch = seq_model.load(load_path, opt, ["epoch"])
         else:
             raise RuntimeError(f"Model file '{load_path}' does not exist.")
 
     if debugging:
-        for submodule in swin_model.modules():
+        for submodule in seq_model.modules():
             submodule.register_forward_hook(nan_hook)
         torch.autograd.set_detect_anomaly(True)
 
@@ -84,13 +88,18 @@ def setup(args):
     transform = lambda x: x - 0.5
     testset = CustomDataSet("./data/", atcg_len, transform, False, args.half_opt)
     
-    ret = {'model': swin_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
+    ret = {'model': seq_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
     if is_eval:
-        swin_model.eval()
+        seq_model.eval()
     else:
         trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt, mix_up = args.mixup)
         lec_sch = LECosineAnnealingSmoothRestart(args)
-        opt = optim.AdamW(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999), weight_decay = weight_decay)
+        
+        # Treat weight / bias / Batch norm params differently in terms of weight decay!
+        decay_params, no_decay_params = seq_model.get_wd_params()
+        decay_group = {'params': decay_params, 'weight_decay': weight_decay, 'lr': lec_sch.lr(epoch), 'betas': (0.9, 0.999)}
+        no_decay_group = {'params': no_decay_params, 'weight_decay': 0., 'lr': lec_sch.lr(epoch), 'betas': (0.9, 0.999)}
+        opt = optim.AdamW([decay_group, no_decay_group])
         epochs = args.full_epochs + args.cooldown_epochs
         writer = get_summary_writer(epochs, del_dir)
 
@@ -100,7 +109,7 @@ def setup(args):
         ret['opt_sch']      = lec_sch
         ret['train_set']    = trainset
         ret['full_epoch']   = epochs
-        swin_model.train()
+        seq_model.train()
     return ret
 
 def train(train_kwargs):
@@ -168,22 +177,26 @@ def train(train_kwargs):
         vanilla_acc = train_correct_num / train_full_num
         total_loss /= loader_len
 
-        print(f"Traning Epoch: {ep:4d} / {full_epoch:4d}\ttrain loss: {total_loss.item():.5f}\ttrain acc: {vanilla_acc:.4f}\tlearing rate: {current_lr:.7f}")        
+        print(f"Traning Epoch (Pro): {ep:4d} / {full_epoch:4d}\ttrain loss: {total_loss.item():.5f}\ttrain acc: {vanilla_acc:.4f}\tlearing rate: {current_lr:.7f}")        
         writer.add_scalar('Loss/Train Avg Loss', total_loss, ep)
         writer.add_scalar('Acc/Train Avg Acc', vanilla_acc, ep)
         writer.add_scalar('Learning rate', current_lr, ep)
 
-        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'bn_{args.atcg_len}', 'ext': 'pt'}
+        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'pros_{args.atcg_len}', 'ext': 'pt'}
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0:
             eval(train_kwargs, ep, resume = True)
     print("Training completed.")
 <<<<<<< HEAD
+<<<<<<< HEAD
     model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
 =======
     model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'bn_{args.atcg_len}', 'ext': 'pt'}
 >>>>>>> New pure conv testing (BN + Drop)
+=======
+    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'pros_{args.atcg_len}', 'ext': 'pt'}
+>>>>>>> New backbone, trains successfully yet overfitted
     save_model(model, model_info, opt = opt)
 
 def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
