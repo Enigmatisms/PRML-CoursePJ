@@ -51,7 +51,7 @@ class SeqPredictor(nn.Module):
         self.emb_dim = emb_dim
         linear_dim = emb_dim << 2
         
-        self.patch_embed = PatchEmbeddings(5, 17, emb_dim, 4, args.input_dropout)       # baseline (3, 17)
+        self.patch_embed = PatchEmbeddings(3, 17, emb_dim, 4, args.input_dropout)       # baseline (3, 17)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
         self.conv_layer1 = nn.Sequential(
@@ -68,11 +68,11 @@ class SeqPredictor(nn.Module):
 
         self.classify = nn.Sequential(
             nn.Dropout(args.class_dropout),
-            nn.Linear(linear_dim, linear_dim >> 1),
+            nn.Linear(linear_dim, linear_dim),
             nn.BatchNorm1d(1),
             nn.GELU(),
             nn.Dropout(args.class_dropout),
-            nn.Linear(linear_dim >> 1, 2000),
+            nn.Linear(linear_dim, 2000),
         )
         # Baseline output: (linear_dim, 2000)
         # No sigmoid during classification (since there is one during AFL)

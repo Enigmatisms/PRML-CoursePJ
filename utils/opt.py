@@ -9,6 +9,7 @@ import argparse
 def get_opts():
     parser = argparse.ArgumentParser()
     # training parameters
+    parser.add_argument("--exp_name", type = str, default = "baseline", help = "Name of experiment")
     parser.add_argument("--seed", type = int, default = 0, help = "Random seed to use")
     parser.add_argument("--full_epochs", type = int, default = 1000, help = "Training lasts for . epochs (wo warmup and cooldown)")
     parser.add_argument("--warmup_epochs", type = int, default = 10, help = "Warm up initialization epoch number")      # baseline 0
@@ -41,9 +42,9 @@ def get_opts():
     # asymmetrical loss parameters
     # TODO: defaults should be modified
     parser.add_argument("--asl_gamma_pos", type = float, default = 0.0, help = "asl gamma pos")
-    parser.add_argument("--asl_gamma_neg", type = float, default = 4.0, help = "asl gamma neg")     # baseline 5.0
+    parser.add_argument("--asl_gamma_neg", type = float, default = 5.5, help = "asl gamma neg")     # baseline 5.0
     parser.add_argument("--asl_eps", type = float, default = 1e-8, help = "asl epsilon")
-    parser.add_argument("--asl_clip", type = float, default = 0.1, help = "asl clipping")           # baseline 0.05
+    parser.add_argument("--asl_clip", type = float, default = 0.05, help = "asl clipping")           # baseline 0.05
 
     # lr scheduler parameters
     parser.add_argument("--cosine_folds", type = int, default = 5, help = "How many periods the cosine scheduler should have")

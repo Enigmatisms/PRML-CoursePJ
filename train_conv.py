@@ -1,6 +1,6 @@
 #-*-coding:utf-8-*-
 """
-    Swin Transformer 1D training for Chromatin Openess Prediction
+    Conv Predictor 1D training for Chromatin Openess Prediction
     Also, this will be pytorch template of mine in the future
     @author: Qianyue He
     @date: 2022-11-25
@@ -22,6 +22,7 @@ from models.seq_pred import SeqPredictor
 from utils.dataset import CustomDataSet
 from utils.utils import get_summary_writer, save_model
 from utils.cosine_anneal import LECosineAnnealingSmoothRestart
+from torchmetrics import AUROC
 
 default_chkpt_path = "./check_points/"
 default_model_path = "./model/"
@@ -74,7 +75,7 @@ def setup(args):
     else:
         load_path = os.path.join(default_chkpt_path if not args.load_model else default_model_path, args.load_path)
         if os.path.exists(load_path):
-            epoch = seq_model.load(load_path, opt, ["epoch"])
+            epoch = seq_model.load(load_path, None, ["epoch"])
         else:
             raise RuntimeError(f"Model file '{load_path}' does not exist.")
 
@@ -182,12 +183,13 @@ def train(train_kwargs):
         writer.add_scalar('Acc/Train Avg Acc', vanilla_acc, ep)
         writer.add_scalar('Learning rate', current_lr, ep)
 
-        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'pros_{args.atcg_len}', 'ext': 'pt'}
+        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'{args.exp_name}_{args.atcg_len}', 'ext': 'pt'}
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0:
             eval(train_kwargs, ep, resume = True)
     print("Training completed.")
+<<<<<<< HEAD:train_swin.py
 <<<<<<< HEAD
 <<<<<<< HEAD
     model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
@@ -197,9 +199,12 @@ def train(train_kwargs):
 =======
     model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'pros_{args.atcg_len}', 'ext': 'pt'}
 >>>>>>> New backbone, trains successfully yet overfitted
+=======
+    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'{args.exp_name}_{args.atcg_len}', 'ext': 'pt'}
+>>>>>>> Spectral clustering should be added.:train_conv.py
     save_model(model, model_info, opt = opt)
 
-def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
+def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = False):
     args        = eval_kwargs['args']
     testset     = eval_kwargs['test_set']   
     loss_func   = eval_kwargs['loss_func']
@@ -214,7 +219,13 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
     pred_pos_num = 0
     test_full_num = 0
     total_loss = 0
+<<<<<<< HEAD:train_swin.py
     model.eval()
+=======
+    if resume:
+        model.eval()
+    auc_results = []
+>>>>>>> Spectral clustering should be added.:train_conv.py
     with torch.no_grad():
         for i, (batch_x, batch_y) in enumerate(test_loader):
             batch_x = batch_x.cuda()
@@ -232,6 +243,12 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
             pred_pos_num += local_correct_num
             total_loss += loss
             test_full_num += full_num
+            if auc:
+                auroc = AUROC(task = 'binary', num_classes = 2)
+                auc_result = auroc(pred_y, batch_y.to(torch.int32)).item()
+                if auc_result < 0.5:                # should not be close to 0.5
+                    auc_result = 1. - auc_result
+                auc_results.append(auc_result)
     if resume:
         model.train()
     total_loss /= test_batches
@@ -242,15 +259,18 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
         eval_kwargs['writer'].add_scalar('Loss/Test Avg Loss', total_loss, cur_epoch)
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc', vanilla_pos_acc, cur_epoch)
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc (All)', vanilla_acc, cur_epoch)
+    if auc:
+        auc_results = torch.Tensor(auc_results).cuda()
+        print(f"Average AUC: {torch.mean(auc_results)}, std: {torch.std(auc_results)}, min: {torch.min(auc_results)}, max: {torch.max(auc_results)}")
 
 def main(context: dict):
     if "train_set" in context:
-        print("Swin Transformer 1D training...")
+        print("Conv Predictor 1D training...")
         train(context)
     else:
-        print("Swin Transformer 1D evaluating...")
+        print("Conv Predictor 1D evaluating...")
         context['model'] = context['model'].cuda()
-        eval(context, 0, False)
+        eval(context, 0, False, False, auc = True)
 
 if __name__ == "__main__":
     opt_args = get_opts()
