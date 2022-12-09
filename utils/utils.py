@@ -72,11 +72,11 @@ def save_model(model, path_info: dict, other_stuff: dict = None, opt = None):
         checkpoint.update(other_stuff)
     torch.save(checkpoint, path)
         
-def get_summary_writer(epochs:int, del_dir:bool):
+def get_summary_writer(exp_name: str, epochs:int, del_dir:bool):
     logdir = './logs/'
     if os.path.exists(logdir) and del_dir:
         shutil.rmtree(logdir)
-    time_stamp = "{0:%Y-%m-%d/%H-%M-%S}-epoch{1}/".format(datetime.now(), epochs)
+    time_stamp = "{0:%Y-%m-%d/%H-%M-%S}-{1}-epoch{2}/".format(datetime.now(), exp_name, epochs)
     return SummaryWriter(log_dir = logdir + time_stamp)
 
 if __name__ == "__main__":

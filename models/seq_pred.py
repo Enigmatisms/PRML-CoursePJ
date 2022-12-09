@@ -7,6 +7,8 @@
 
 import torch
 from torch import nn
+from torch.nn import functional as F
+from timm.models.layers import DropPath
     
 def makeConv1D(in_chan, out_chan, ksize = 3, act = nn.GELU(), norm = None, max_pool = 0, padding = -1):
     layer = [nn.Conv1d(in_chan, out_chan, kernel_size = ksize, padding = ksize >> 1 if padding < 0 else padding)]
@@ -24,10 +26,12 @@ class PatchEmbeddings(nn.Module):
         self.initial_mapping = nn.Linear(input_channel, out_channels >> 2)
         
         self.convs = nn.Sequential(
+            nn.BatchNorm1d(out_channels >> 2),
             nn.Dropout(input_drop),
-            *makeConv1D(out_channels >> 2, out_channels >> 1, ksize_init, norm = nn.BatchNorm1d(out_channels >> 1), padding = 0),
-            *makeConv1D(out_channels >> 1, out_channels, ksize, norm = nn.BatchNorm1d(out_channels),                padding = 0),
-            *makeConv1D(out_channels, out_channels, ksize, norm = nn.BatchNorm1d(out_channels),                     padding = 0, max_pool = 2),
+            nn.GELU(),
+            *makeConv1D(out_channels >> 2, out_channels, ksize_init, norm = nn.BatchNorm1d(out_channels),   padding = 0),
+            *makeConv1D(out_channels, out_channels, ksize, norm = nn.BatchNorm1d(out_channels),             padding = 0, max_pool = 3),
+            *makeConv1D(out_channels, out_channels, ksize, norm = nn.BatchNorm1d(out_channels),             padding = 0, max_pool = 2),
         )
 
     def forward(self, X:torch.Tensor) -> torch.Tensor:
@@ -51,28 +55,31 @@ class SeqPredictor(nn.Module):
         self.emb_dim = emb_dim
         linear_dim = emb_dim << 2
         
-        self.patch_embed = PatchEmbeddings(3, 17, emb_dim, 4, args.input_dropout)       # baseline (3, 17)
+        self.patch_embed = PatchEmbeddings(5, 17, emb_dim, 4, args.input_dropout)       # baseline (3, 17)
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
         self.emb_drop = nn.Dropout(args.emb_dropout)
         self.conv_layer1 = nn.Sequential(
             *makeConv1D(emb_dim,        linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
             *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
-            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
+            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2, act = None),
         )
         self.conv_layer2 = nn.Sequential(
             nn.Dropout(args.conv_dropout),
-            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim),   max_pool = 2),
+            nn.GELU(),
             *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim)),
             *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim)),
+            *makeConv1D(linear_dim,     linear_dim,     3, norm = nn.BatchNorm1d(linear_dim), act = None),
         )
+        
+        self.path_drop = DropPath(args.path_dropout)
 
         self.classify = nn.Sequential(
             nn.Dropout(args.class_dropout),
-            nn.Linear(linear_dim, linear_dim),
+            nn.Linear(linear_dim, linear_dim >> 1),
             nn.BatchNorm1d(1),
             nn.GELU(),
             nn.Dropout(args.class_dropout),
-            nn.Linear(linear_dim, 2000),
+            nn.Linear(linear_dim >> 1, 2000),
         )
         # Baseline output: (linear_dim, 2000)
         # No sigmoid during classification (since there is one during AFL)
@@ -96,7 +103,8 @@ class SeqPredictor(nn.Module):
         X = self.patch_embed(X)
         X = self.emb_drop(X)
         X = self.conv_layer1(X)
-        X = self.conv_layer2(X)
+        tmp = self.conv_layer2(X)
+        X = F.gelu(self.path_drop(tmp) + X)
         X = self.avg_pool(X).transpose(-1, -2)      # shape after avg pooling: (N, 1, C)
         return self.classify(X).squeeze(dim = 1)    # output is of shape (N, 2000)
     
