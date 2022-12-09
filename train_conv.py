@@ -15,7 +15,6 @@ from timm.loss import AsymmetricLossMultiLabel
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast as autocast
-from torch.cuda.amp.grad_scaler import GradScaler
 
 from utils.opt import get_opts
 from utils.train_helper import *
@@ -103,7 +102,7 @@ def setup(args):
         no_decay_group = {'params': no_decay_params, 'weight_decay': 0., 'lr': lec_sch.lr(epoch), 'betas': (0.9, 0.999)}
         opt = optim.AdamW([decay_group, no_decay_group])
         epochs = args.full_epochs + args.cooldown_epochs
-        writer = get_summary_writer(epochs, del_dir)
+        writer = get_summary_writer(args.exp_name, epochs, del_dir)
 
         ret['opt']          = opt
         ret['epoch']        = epoch
@@ -131,8 +130,6 @@ def train(train_kwargs):
     train_loader    = DataLoader(trainset, args.batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
     model = model.cuda()
 
-    scaler = GradScaler() if args.half_opt else None
-    
     loader_len = len(train_loader)
     for ep in tqdm.tqdm(range(epoch, full_epoch)):
         if ep > args.mixup_epochs:
@@ -145,18 +142,15 @@ def train(train_kwargs):
             batch_y = batch_y.cuda()
             opt.zero_grad()
             # There might be preprocessing of predictions?
-            if scaler is not None:
+            if args.half_opt:
                 with autocast():
                     pred_y = model.forward(batch_x)
                     loss = loss_func(pred_y, batch_y)
-                    scaler.scale(loss).backward()
-                    scaler.step(opt)
-                    scaler.update()
             else:
                 pred_y = model.forward(batch_x)
                 loss: torch.Tensor = loss_func(pred_y, batch_y)
-                loss.backward()
-                opt.step()
+            loss.backward()
+            opt.step()
             total_loss += loss
             local_correct_num, total_num, all_classes = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
             train_correct_num += local_correct_num
@@ -188,7 +182,7 @@ def train(train_kwargs):
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0:
-            eval(train_kwargs, ep, resume = True)
+            eval(train_kwargs, ep, resume = True, auc = True)
     print("Training completed.")
 <<<<<<< HEAD:train_swin.py
 <<<<<<< HEAD
@@ -215,7 +209,6 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
     test_loader = DataLoader(testset, args.test_batch_size, shuffle = False, num_workers = 2, drop_last = False)
     test_batches = args.test_batches if args.test_batches else len(test_loader)
 
-    scaler = GradScaler() if args.half_opt else None
     target_pos_num = 0
     pred_pos_num = 0
     test_full_num = 0
@@ -232,7 +225,7 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
             batch_x = batch_x.cuda()
             batch_y = batch_y.cuda()
             if i >= test_batches: break
-            if scaler is not None:
+            if args.half_opt:
                 with autocast():
                     pred_y = model.forward(batch_x)
                     loss = loss_func(pred_y, batch_y)
@@ -247,6 +240,8 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
             if auc:
                 auroc = AUROC(task = 'binary', num_classes = 2)
                 auc_result = auroc(pred_y, batch_y.to(torch.int32)).item()
+                if auc_result < 1e-4:               # No positive samples in targets, true positive value should be meaningless
+                    continue
                 if auc_result < 0.5:                # should not be close to 0.5
                     auc_result = 1. - auc_result
                 auc_results.append(auc_result)
@@ -262,7 +257,9 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc (All)', vanilla_acc, cur_epoch)
     if auc:
         auc_results = torch.Tensor(auc_results).cuda()
-        print(f"Average AUC: {torch.mean(auc_results)}, std: {torch.std(auc_results)}, min: {torch.min(auc_results)}, max: {torch.max(auc_results)}")
+        mean_auroc = torch.mean(auc_results)
+        eval_kwargs['writer'].add_scalar('Acc/AUROC', mean_auroc, cur_epoch)
+        print(f"Average AUC: {mean_auroc}, std: {torch.std(auc_results)}, min: {torch.min(auc_results)}, max: {torch.max(auc_results)}")
 
 def main(context: dict):
     if "train_set" in context:
