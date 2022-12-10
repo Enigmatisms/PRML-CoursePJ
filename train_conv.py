@@ -16,11 +16,11 @@ from torch import optim
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast as autocast
 
-from utils.opt import get_opts
+from utils.opt import get_predictor_opts
 from utils.train_helper import *
-from models.seq_pred import SeqPredictor
 from utils.dataset import CustomDataSet
 from utils.utils import get_summary_writer, save_model
+from models.seq_pred import SeqPredictor, get_wd_params
 from utils.cosine_anneal import LECosineAnnealingSmoothRestart
 from torchmetrics import AUROC
 
@@ -85,11 +85,11 @@ def setup(args):
         lec_sch = LECosineAnnealingSmoothRestart(args)
         
         # Treat weight / bias / Batch norm params differently in terms of weight decay!
-        decay_params, no_decay_params = seq_model.get_wd_params()
+        decay_params, no_decay_params = get_wd_params(seq_model)
         decay_group = {'params': decay_params, 'weight_decay': weight_decay, 'lr': lec_sch.lr(epoch), 'betas': (0.9, 0.999)}
         no_decay_group = {'params': no_decay_params, 'weight_decay': 0., 'lr': lec_sch.lr(epoch), 'betas': (0.9, 0.999)}
         opt = optim.AdamW([decay_group, no_decay_group])
-        epochs = args.full_epochs + args.cooldown_epochs
+        epochs = args.full_epochs + args.cooldown_epochs + args.warmup_epochs
         writer = get_summary_writer(args.exp_name, epochs, del_dir)
 
         ret['opt']          = opt
@@ -243,7 +243,7 @@ def main(context: dict):
         eval(context, 0, False, False, auc = True)
 
 if __name__ == "__main__":
-    opt_args = get_opts()
+    opt_args = get_predictor_opts()
     context = setup(opt_args)
     main(context)
     

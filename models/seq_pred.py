@@ -9,6 +9,29 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from timm.models.layers import DropPath
+
+def get_wd_params(model, verbose = False):
+    decay = []
+    no_decay = []
+    whitelist_weight_modules = (nn.Linear, nn.Conv1d)
+    for mod_name, mod in model.named_modules():
+        if not isinstance(mod, whitelist_weight_modules):
+            if verbose:
+                print(f"{type(mod)} Black listed, skipping...")
+            if isinstance(mod, nn.BatchNorm1d):
+                for param in mod.parameters():
+                    no_decay.append(param)
+            continue
+        for param_name, param in mod.named_parameters():
+            if param_name.endswith('bias'):
+                if verbose:
+                    print(f"{param_name} in {mod_name} is bias, excluded.")
+                no_decay.append(param)
+            else:
+                if verbose:
+                    print(f"{param_name} in {mod_name} are valid weights, added for weight decay.")
+                decay.append(param)
+    return decay, no_decay
     
 def makeConv1D(in_chan, out_chan, ksize = 3, act = nn.GELU(), norm = None, max_pool = 0, padding = -1):
     layer = [nn.Conv1d(in_chan, out_chan, kernel_size = ksize, padding = ksize >> 1 if padding < 0 else padding)]
@@ -120,36 +143,13 @@ class SeqPredictor(nn.Module):
         X = F.gelu(self.path_drop(tmp) + X)
         X = self.avg_pool(X).transpose(-1, -2)      # shape after avg pooling: (N, 1, C)
         return self.classify(X).squeeze(dim = 1)    # output is of shape (N, 2000)
-    
-    def get_wd_params(self, verbose = False):
-        decay = []
-        no_decay = []
-        whitelist_weight_modules = (nn.Linear, nn.Conv1d)
-        for mod_name, mod in self.named_modules():
-            if not isinstance(mod, whitelist_weight_modules):
-                if verbose:
-                    print(f"{type(mod)} Black listed, skipping...")
-                if isinstance(mod, nn.BatchNorm1d):
-                    for param in mod.parameters():
-                        no_decay.append(param)
-                continue
-            for param_name, param in mod.named_parameters():
-                if param_name.endswith('bias'):
-                    if verbose:
-                        print(f"{param_name} in {mod_name} is bias, excluded.")
-                    no_decay.append(param)
-                else:
-                    if verbose:
-                        print(f"{param_name} in {mod_name} are valid weights, added for weight decay.")
-                    decay.append(param)
-        return decay, no_decay
            
 if __name__ == "__main__":
     print("BN-Drop CNN 1D unit test")
     import sys
     sys.path.append("..")
-    from utils.opt import get_opts
-    opt_args = get_opts()
+    from utils.opt import get_predictor_opts
+    opt_args = get_predictor_opts()
     SEQ_LEN = 1000
     stm = SeqPredictor(opt_args, emb_dim = 96).cuda()
     test_seqs = torch.normal(0, 1, (8, 4, SEQ_LEN)).cuda()
