@@ -1,8 +1,9 @@
-import torch
+import argparse
 import numpy as np
-from models.simple_moco import MoCo, SimpleEncoder
+from sklearn.cluster import SpectralClustering
+
 from models.seq_pred import SeqPredictor
-from sklearn.cluster import SpectralClustering, KMeans
+from models.simple_moco import MoCo, SimpleEncoder
 from sklearn.metrics import normalized_mutual_info_score, adjusted_mutual_info_score
 
 LABEL_TABLE = { 'CLP': 0, 'CMP': 1, 'GMP': 2, 'HSC': 3, 'LMPP': 4, 
@@ -54,8 +55,16 @@ def moco_spectrum_clutering(model_path: str, label_path: str, moco_path: str):
     print(f"Seq Predictor: NMI: {normalized_mutual_info_score(gt_labels, seqp_preds)}, AMI: {adjusted_mutual_info_score(gt_labels, seqp_preds)}")
     
 if __name__ == "__main__":
-    moco_spectrum_clutering("./model/chkpt_2_res_bb_1000.pt", "./data_project4/celltype.txt", "./model/chkpt_2_moco_1000.pt")
-    
-    # vanilla_spectrum_clutering("./model/chkpt_2_res_bb_1000.pt", "./data_project4/celltype.txt")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_path", type = str, default = "./model/chkpt_2_res_bb_1000.pt", help = "Path of sequence prediction model pt file")
+    parser.add_argument("--label_path", type = str, default = "./data_project4/celltype.txt", help = "Path of ground truth label file")
+    parser.add_argument("--moco_path", type = str, default = "./model/chkpt_2_moco_1000.pt", help = "Path of MoCo-v3 model pt file")
+    parser.add_argument("--moco", default = False, action = "store_true", help = "Use moco for clustering pre-process")
+
+    args = parser.parse_args()
+    if args.moco:
+        moco_spectrum_clutering(args.model_path, args.label_path, args.moco_path)
+    else:
+        vanilla_spectrum_clutering(args.model_path, args.label_path)
 
 
