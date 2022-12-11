@@ -2,6 +2,7 @@
 *.zip
 gsp*
 logs/**
+other_output/*
 **/__pycache__
 data_project4/
 check_points/*

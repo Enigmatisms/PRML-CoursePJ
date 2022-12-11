@@ -242,8 +242,8 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
                 auc_result = auroc(pred_y, batch_y.to(torch.int32)).item()
                 if auc_result < 1e-4:               # No positive samples in targets, true positive value should be meaningless
                     continue
-                if auc_result < 0.5:                # should not be close to 0.5
-                    auc_result = 1. - auc_result
+                # if auc_result < 0.5:                # should not be close to 0.5
+                #     auc_result = 1. - auc_result
                 auc_results.append(auc_result)
     if resume:
         model.train()
@@ -256,9 +256,17 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc', vanilla_pos_acc, cur_epoch)
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc (All)', vanilla_acc, cur_epoch)
     if auc:
+        if resume == False:
+            import numpy as np
+            import seaborn as sns
+            import matplotlib.pyplot as plt
+            auc_array = np.array(auc_results)
+            auc_array.tofile(f"./other_output/auc_data_{args.atcg_len}.txt")
+            sns.violinplot(data=[auc_array])    
+            plt.show()
         auc_results = torch.Tensor(auc_results).cuda()
         mean_auroc = torch.mean(auc_results)
-        eval_kwargs['writer'].add_scalar('Acc/AUROC', mean_auroc, cur_epoch)
+        if use_writer: eval_kwargs['writer'].add_scalar('Acc/AUROC', mean_auroc, cur_epoch)
         print(f"Average AUC: {mean_auroc}, std: {torch.std(auc_results)}, min: {torch.min(auc_results)}, max: {torch.max(auc_results)}")
 
 def main(context: dict):
