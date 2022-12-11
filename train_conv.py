@@ -56,19 +56,8 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-    swin_model = SwinTransformer(atcg_len, args, emb_dim = args.emb_dim, max_pool = args.patch_pool)
-=======
-    swin_model = SwinTransformer(atcg_len, args, emb_dim = 128)
->>>>>>> full convolution version is working
-=======
-    swin_model = SeqPredictor(args, emb_dim = 128)
->>>>>>> Baseline retrain
-=======
+
     seq_model = SeqPredictor(args, emb_dim = 128)
->>>>>>> New backbone, trains successfully yet overfitted
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
@@ -184,19 +173,7 @@ def train(train_kwargs):
         if ep % args.train_eval_time == 0:
             eval(train_kwargs, ep, resume = True, auc = True)
     print("Training completed.")
-<<<<<<< HEAD:train_swin.py
-<<<<<<< HEAD
-<<<<<<< HEAD
-    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
-=======
-    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'bn_{args.atcg_len}', 'ext': 'pt'}
->>>>>>> New pure conv testing (BN + Drop)
-=======
-    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'pros_{args.atcg_len}', 'ext': 'pt'}
->>>>>>> New backbone, trains successfully yet overfitted
-=======
     model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'{args.exp_name}_{args.atcg_len}', 'ext': 'pt'}
->>>>>>> Spectral clustering should be added.:train_conv.py
     save_model(model, model_info, opt = opt)
 
 def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = False):
@@ -213,13 +190,10 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
     pred_pos_num = 0
     test_full_num = 0
     total_loss = 0
-<<<<<<< HEAD:train_swin.py
-    model.eval()
-=======
+
     if resume:
         model.eval()
     auc_results = []
->>>>>>> Spectral clustering should be added.:train_conv.py
     with torch.no_grad():
         for i, (batch_x, batch_y) in enumerate(test_loader):
             batch_x = batch_x.cuda()
