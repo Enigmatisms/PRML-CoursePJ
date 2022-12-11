@@ -56,7 +56,6 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
-
     seq_model = SeqPredictor(args, emb_dim = 128)
     if not load_path:
         if is_eval:
