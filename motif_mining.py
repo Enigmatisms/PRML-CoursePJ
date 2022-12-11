@@ -75,7 +75,7 @@ def motif_mining_main(eval_kwargs):
                 = eval_kwargs['model']   
 
     test_set_len = len(testset)
-    test_idxs = [10 * i for i in range(3)] if args.visualization else list(range(test_set_len))
+    test_idxs = [10 * i for i in range(1)] if args.visualization else list(range(test_set_len))
     seq_num = len(test_idxs)
     
     resulting_grads = []
@@ -177,9 +177,13 @@ def motif_freq_analysis(all_motifs: list):
     for key in entry_to_del:
         del motif_dict[key]
     bars = list(motif_dict.values())
+    with open("motif_file.txt", 'w') as file:
+        for key in motif_dict:
+            file.write(f"{key}\n")
     plt.bar(list(range(len(motif_dict.keys()))), bars)
     plt.grid(axis = 'both')
     plt.show()
+
 
 def main(context: dict):
     print("Motif mining ...")
