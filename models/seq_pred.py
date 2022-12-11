@@ -132,7 +132,10 @@ class SeqPredictor(nn.Module):
             opt.load_state_dict(save['optimizer'])
         print("BN-Drop CNN 1D loaded from '%s'"%(load_path))
         if not other_stuff is None:
-            return [save[k] for k in other_stuff]
+            others = []
+            for k in other_stuff:
+                if k in save: others.append(save[k])
+            return others
 
     def forward(self, X:torch.Tensor) -> torch.Tensor:
         # The input X is of shape (N, C, L) -> (batch, 4, seq_length)

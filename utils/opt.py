@@ -7,7 +7,7 @@
 import argparse
 
 # Options for Sequence predictor
-def get_predictor_opts():
+def get_predictor_opts(delayed_parse = False):
     parser = argparse.ArgumentParser()
     # training parameters
     parser.add_argument("--exp_name", type = str, default = "baseline", help = "Name of experiment")
@@ -61,10 +61,12 @@ def get_predictor_opts():
     parser.add_argument("-e", "--eval", default = False, action = "store_true", help = "Evaluation only model (a trained model is required)")
     parser.add_argument("-o", "--half_opt", default = False, action = "store_true", help = "Use AMP scaler to speed up")
     parser.add_argument("--load_model", default = False, action = "store_true", help = "Load from model path or load from checkpoint path")
+    if delayed_parse:
+        return parser
     return parser.parse_args()
 
 # Options for Momentum Contrast
-def get_moco_opts():
+def get_moco_opts(delayed_parse = False):
     parser = argparse.ArgumentParser()
     # training parameters
     parser.add_argument("--exp_name", type = str, default = "baseline", help = "Name of experiment")
@@ -107,4 +109,6 @@ def get_moco_opts():
     parser.add_argument("-o", "--half_opt", default = False, action = "store_true", help = "Use AMP scaler to speed up")
     parser.add_argument("-n", "--no_split", default = False, action = "store_true", help = "Train with full dataset with no train/test split")
     parser.add_argument("--load_model", default = False, action = "store_true", help = "Load from model path or load from checkpoint path")
+    if delayed_parse:
+        return parser
     return parser.parse_args()

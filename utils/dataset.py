@@ -11,6 +11,8 @@ import natsort
 import numpy as np
 from random import randint
 from torch.utils import data
+
+MAPPING = np.array(['A', 'T', 'C', 'G'])
         
 class CustomDataSet(data.Dataset):
     """
@@ -50,7 +52,18 @@ class CustomDataSet(data.Dataset):
         raw_label = np.fromfile(label_loc, dtype = np.uint8).astype(self.float_type["np_float"])
         tensor_label = torch.from_numpy(raw_label)
         return tensor_data, tensor_label
-    
+
+    def get_sequence(self, idx, output = 'atcg'):
+        data_loc = os.path.join(self.data_dir, self.names[idx])
+        data_value = np.fromfile(data_loc, dtype = np.uint8).reshape(-1, self.seq_num)
+        if output in {'atcg', 'idx'}:
+            idx = data_value.argmax(axis = 0)
+            if output == 'idx':
+                return idx                          # return ATCG idx: A = 0, T = 1, ...
+            return ''.join(MAPPING[idx].tolist())   # return character ATCG sequence
+        else:
+            return data_value                       # return one hot
+            
     def disable_mixup(self):
         self.mix_up = 0.0
 
