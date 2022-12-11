@@ -1,6 +1,8 @@
 *.dat
+*.zip
+gsp*
 logs/**
+other_output/*
 **/__pycache__
 data_project4/
-*.zip
 check_points/*

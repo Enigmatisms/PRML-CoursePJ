@@ -1,9 +1,10 @@
 #-*-coding:utf-8-*-
 """
-    Swin Transformer 1D training for Chromatin Openess Prediction
+    Conv Predictor 1D training for Chromatin Openess Prediction
     Also, this will be pytorch template of mine in the future
     @author: Qianyue He
     @date: 2022-11-25
+    Milestone on @date 2022.12.8
 """
 import os
 import tqdm
@@ -14,14 +15,14 @@ from timm.loss import AsymmetricLossMultiLabel
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast as autocast
-from torch.cuda.amp.grad_scaler import GradScaler
 
-from utils.opt import get_opts
+from utils.opt import get_predictor_opts
 from utils.train_helper import *
-from models.swin import SwinTransformer
 from utils.dataset import CustomDataSet
 from utils.utils import get_summary_writer, save_model
+from models.seq_pred import SeqPredictor, get_wd_params
 from utils.cosine_anneal import LECosineAnnealingSmoothRestart
+from torchmetrics import AUROC
 
 default_chkpt_path = "./check_points/"
 default_model_path = "./model/"
@@ -55,19 +56,19 @@ def setup(args):
         print("CUDA not available.")
         exit(-1)
     
-    swin_model = SwinTransformer(atcg_len, args, emb_dim = args.emb_dim, max_pool = args.patch_pool)
+    seq_model = SeqPredictor(args, emb_dim = 128)
     if not load_path:
         if is_eval:
             raise("LoadPathEmptyError: args.load_path is required in eval mode but not provided.")
     else:
         load_path = os.path.join(default_chkpt_path if not args.load_model else default_model_path, args.load_path)
         if os.path.exists(load_path):
-            epoch = swin_model.load(load_path, opt, ["epoch"])
+            epoch = seq_model.load(load_path, None, ["epoch"])
         else:
             raise RuntimeError(f"Model file '{load_path}' does not exist.")
 
     if debugging:
-        for submodule in swin_model.modules():
+        for submodule in seq_model.modules():
             submodule.register_forward_hook(nan_hook)
         torch.autograd.set_detect_anomaly(True)
 
@@ -76,15 +77,20 @@ def setup(args):
     transform = lambda x: x - 0.5
     testset = CustomDataSet("./data/", atcg_len, transform, False, args.half_opt)
     
-    ret = {'model': swin_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
+    ret = {'model': seq_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
     if is_eval:
-        swin_model.eval()
+        seq_model.eval()
     else:
-        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt)
+        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt, mix_up = args.mixup)
         lec_sch = LECosineAnnealingSmoothRestart(args)
-        opt = optim.Adam(params = swin_model.parameters(), lr = lec_sch.lr(epoch), betas=(0.9, 0.999))
-        epochs = args.full_epochs + args.cooldown_epochs
-        writer = get_summary_writer(epochs, del_dir)
+        
+        # Treat weight / bias / Batch norm params differently in terms of weight decay!
+        decay_params, no_decay_params = get_wd_params(seq_model)
+        decay_group = {'params': decay_params, 'weight_decay': weight_decay, 'lr': lec_sch.lr(epoch), 'betas': (0.9, 0.999)}
+        no_decay_group = {'params': no_decay_params, 'weight_decay': 0., 'lr': lec_sch.lr(epoch), 'betas': (0.9, 0.999)}
+        opt = optim.AdamW([decay_group, no_decay_group])
+        epochs = args.full_epochs + args.cooldown_epochs + args.warmup_epochs
+        writer = get_summary_writer(args.exp_name, epochs, del_dir)
 
         ret['opt']          = opt
         ret['epoch']        = epoch
@@ -92,7 +98,7 @@ def setup(args):
         ret['opt_sch']      = lec_sch
         ret['train_set']    = trainset
         ret['full_epoch']   = epochs
-        swin_model.train()
+        seq_model.train()
     return ret
 
 def train(train_kwargs):
@@ -104,7 +110,7 @@ def train(train_kwargs):
     full_epoch  = train_kwargs['full_epoch'] 
     loss_func   = train_kwargs['loss_func']
 
-    model: SwinTransformer\
+    model: SeqPredictor\
                 = train_kwargs['model']   
     lec_sch: LECosineAnnealingSmoothRestart\
                 = train_kwargs['opt_sch']     
@@ -112,10 +118,10 @@ def train(train_kwargs):
     train_loader    = DataLoader(trainset, args.batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
     model = model.cuda()
 
-    scaler = GradScaler() if args.half_opt else None
-    
     loader_len = len(train_loader)
     for ep in tqdm.tqdm(range(epoch, full_epoch)):
+        if ep > args.mixup_epochs:
+            train_loader.dataset.disable_mixup()
         train_full_num = 0
         train_correct_num = 0
         total_loss = 0
@@ -124,18 +130,15 @@ def train(train_kwargs):
             batch_y = batch_y.cuda()
             opt.zero_grad()
             # There might be preprocessing of predictions?
-            if scaler is not None:
+            if args.half_opt:
                 with autocast():
                     pred_y = model.forward(batch_x)
                     loss = loss_func(pred_y, batch_y)
-                    scaler.scale(loss).backward()
-                    scaler.step(opt)
-                    scaler.update()
             else:
                 pred_y = model.forward(batch_x)
                 loss: torch.Tensor = loss_func(pred_y, batch_y)
-                loss.backward()
-                opt.step()
+            loss.backward()
+            opt.step()
             total_loss += loss
             local_correct_num, total_num, all_classes = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
             train_correct_num += local_correct_num
@@ -158,42 +161,44 @@ def train(train_kwargs):
         vanilla_acc = train_correct_num / train_full_num
         total_loss /= loader_len
 
-        print(f"Traning Epoch: {ep:4d} / {full_epoch:4d}\ttrain loss: {total_loss.item():.5f}\ttrain acc: {vanilla_acc:.4f}\tlearing rate: {current_lr:.7f}")        
+        print(f"Traning Epoch (Pro): {ep:4d} / {full_epoch:4d}\ttrain loss: {total_loss.item():.5f}\ttrain acc: {vanilla_acc:.4f}\tlearing rate: {current_lr:.7f}")        
         writer.add_scalar('Loss/Train Avg Loss', total_loss, ep)
         writer.add_scalar('Acc/Train Avg Acc', vanilla_acc, ep)
         writer.add_scalar('Learning rate', current_lr, ep)
 
-        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
+        chkpt_info = {'index': ep, 'max_num': 2, 'dir': default_chkpt_path, 'type': f'{args.exp_name}_{args.atcg_len}', 'ext': 'pt'}
         save_model(model, chkpt_info, {'epoch': ep}, opt)
 
         if ep % args.train_eval_time == 0:
-            eval(train_kwargs, ep, resume = True)
+            eval(train_kwargs, ep, resume = True, auc = True)
     print("Training completed.")
-    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'baseline_{args.atcg_len}', 'ext': 'pt'}
+    model_info = {'index': ep, 'max_num': 2, 'dir': default_model_path, 'type': f'{args.exp_name}_{args.atcg_len}', 'ext': 'pt'}
     save_model(model, model_info, opt = opt)
 
-def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
+def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = False):
     args        = eval_kwargs['args']
     testset     = eval_kwargs['test_set']   
     loss_func   = eval_kwargs['loss_func']
-    model: SwinTransformer\
+    model: SeqPredictor\
                 = eval_kwargs['model']   
 
     test_loader = DataLoader(testset, args.test_batch_size, shuffle = False, num_workers = 2, drop_last = False)
     test_batches = args.test_batches if args.test_batches else len(test_loader)
 
-    scaler = GradScaler() if args.half_opt else None
     target_pos_num = 0
     pred_pos_num = 0
     test_full_num = 0
     total_loss = 0
-    model.eval()
+
+    if resume:
+        model.eval()
+    auc_results = []
     with torch.no_grad():
         for i, (batch_x, batch_y) in enumerate(test_loader):
             batch_x = batch_x.cuda()
             batch_y = batch_y.cuda()
             if i >= test_batches: break
-            if scaler is not None:
+            if args.half_opt:
                 with autocast():
                     pred_y = model.forward(batch_x)
                     loss = loss_func(pred_y, batch_y)
@@ -205,6 +210,14 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
             pred_pos_num += local_correct_num
             total_loss += loss
             test_full_num += full_num
+            if auc:
+                auroc = AUROC(task = 'binary', num_classes = 2)
+                auc_result = auroc(pred_y, batch_y.to(torch.int32)).item()
+                if auc_result < 1e-4:               # No positive samples in targets, true positive value should be meaningless
+                    continue
+                # if auc_result < 0.5:                # should not be close to 0.5
+                #     auc_result = 1. - auc_result
+                auc_results.append(auc_result)
     if resume:
         model.train()
     total_loss /= test_batches
@@ -215,18 +228,31 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False):
         eval_kwargs['writer'].add_scalar('Loss/Test Avg Loss', total_loss, cur_epoch)
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc', vanilla_pos_acc, cur_epoch)
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc (All)', vanilla_acc, cur_epoch)
+    if auc:
+        if resume == False:
+            import numpy as np
+            import seaborn as sns
+            import matplotlib.pyplot as plt
+            auc_array = np.array(auc_results)
+            auc_array.tofile(f"./other_output/auc_data_{args.atcg_len}.txt")
+            sns.violinplot(data=[auc_array])    
+            plt.show()
+        auc_results = torch.Tensor(auc_results).cuda()
+        mean_auroc = torch.mean(auc_results)
+        if use_writer: eval_kwargs['writer'].add_scalar('Acc/AUROC', mean_auroc, cur_epoch)
+        print(f"Average AUC: {mean_auroc}, std: {torch.std(auc_results)}, min: {torch.min(auc_results)}, max: {torch.max(auc_results)}")
 
 def main(context: dict):
     if "train_set" in context:
-        print("Swin Transformer 1D training...")
+        print("Conv Predictor 1D training...")
         train(context)
     else:
-        print("Swin Transformer 1D evaluating...")
+        print("Conv Predictor 1D evaluating...")
         context['model'] = context['model'].cuda()
-        eval(context, 0, False)
+        eval(context, 0, False, False, auc = True)
 
 if __name__ == "__main__":
-    opt_args = get_opts()
+    opt_args = get_predictor_opts()
     context = setup(opt_args)
     main(context)
     
