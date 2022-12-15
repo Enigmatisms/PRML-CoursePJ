@@ -75,13 +75,23 @@ def setup(args):
     # loss function adopts paper "Asymmetric Loss For Multi-Label Classification".
     loss_func = AsymmetricLossMultiLabel(gamma_pos = asl_gamma_pos, gamma_neg = asl_gamma_neg, clip = asl_clip, eps = asl_eps)
     transform = lambda x: x - 0.5
-    testset = CustomDataSet("./data/", atcg_len, transform, False, args.half_opt)
     
-    ret = {'model': seq_model, 'test_set': testset, 'args': args, 'loss_func': loss_func}
+    if atcg_len == -1:
+        testsets = [CustomDataSet("./data/", seq_len, transform, False, args.half_opt) for seq_len in (500, 1000, 1500)]
+    else:
+        testsets = [CustomDataSet("./data/", atcg_len, transform, False, args.half_opt)]
+    
+    ret = {'model': seq_model, 'test_sets': testsets, 'args': args, 'loss_func': loss_func}
     if is_eval:
         seq_model.eval()
     else:
-        trainset = None if is_eval else CustomDataSet("./data/", atcg_len, transform, True, args.half_opt, mix_up = args.mixup)
+        if is_eval:
+            trainsets = None
+        else:
+            if atcg_len == -1:
+                trainsets = [CustomDataSet("./data/", seq_len, transform, True, args.half_opt, mix_up = args.mixup) for seq_len in (500, 1000, 1500)]
+            else:
+                trainsets = [CustomDataSet("./data/", atcg_len, transform, True, args.half_opt, mix_up = args.mixup)]
         lec_sch = LECosineAnnealingSmoothRestart(args)
         
         # Treat weight / bias / Batch norm params differently in terms of weight decay!
@@ -96,7 +106,7 @@ def setup(args):
         ret['epoch']        = epoch
         ret['writer']       = writer
         ret['opt_sch']      = lec_sch
-        ret['train_set']    = trainset
+        ret['train_sets']   = trainsets
         ret['full_epoch']   = epochs
         seq_model.train()
     return ret
@@ -106,7 +116,7 @@ def train(train_kwargs):
     opt         = train_kwargs['opt']         
     epoch       = train_kwargs['epoch']       
     writer      = train_kwargs['writer']      
-    trainset    = train_kwargs['train_set']   
+    trainsets   = train_kwargs['train_sets']   
     full_epoch  = train_kwargs['full_epoch'] 
     loss_func   = train_kwargs['loss_func']
 
@@ -115,51 +125,57 @@ def train(train_kwargs):
     lec_sch: LECosineAnnealingSmoothRestart\
                 = train_kwargs['opt_sch']     
 
-    train_loader    = DataLoader(trainset, args.batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True)
+    train_loaders    = [DataLoader(trainset, args.batch_size, shuffle = True, num_workers = args.num_workers, drop_last = True) for trainset in trainsets]
     model = model.cuda()
 
-    loader_len = len(train_loader)
+    train_cnt       = 0
+    loader_len_sum  = 0
+    num_of_loader   = len(train_loaders)
     for ep in tqdm.tqdm(range(epoch, full_epoch)):
-        if ep > args.mixup_epochs:
-            train_loader.dataset.disable_mixup()
-        train_full_num = 0
-        train_correct_num = 0
-        total_loss = 0
-        for i, (batch_x, batch_y) in enumerate(train_loader):
-            batch_x = batch_x.cuda()
-            batch_y = batch_y.cuda()
-            opt.zero_grad()
-            # There might be preprocessing of predictions?
-            if args.half_opt:
-                with autocast():
+        train_full_num      = 0
+        train_correct_num   = 0
+        total_loss          = 0
+        for loader_id, train_loader in enumerate(train_loaders):
+            local_loader_len = len(train_loader)
+            loader_len_sum  += local_loader_len
+            if ep > args.mixup_epochs:
+                train_loader.dataset.disable_mixup()
+            for i, (batch_x, batch_y) in enumerate(train_loader):
+                batch_x = batch_x.cuda()
+                batch_y = batch_y.cuda()
+                opt.zero_grad()
+                # There might be preprocessing of predictions?
+                if args.half_opt:
+                    with autocast():
+                        pred_y = model.forward(batch_x)
+                        loss = loss_func(pred_y, batch_y)
+                else:
                     pred_y = model.forward(batch_x)
-                    loss = loss_func(pred_y, batch_y)
-            else:
-                pred_y = model.forward(batch_x)
-                loss: torch.Tensor = loss_func(pred_y, batch_y)
-            loss.backward()
-            opt.step()
-            total_loss += loss
-            local_correct_num, total_num, all_classes = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
-            train_correct_num += local_correct_num
-            train_full_num += total_num
-            if args.train_verbose > 0 and i % args.train_verbose == 0:
-                local_cnt = ep * loader_len + i
-                local_acc = local_correct_num / total_num
-                local_full_acc = all_classes / (OUTPUT_DIM * args.batch_size)
-                writer.add_scalar('Loss/Train Loss', loss, local_cnt)
-                writer.add_scalar('Acc/Train Acc', local_acc, local_cnt)
-                writer.add_scalar('Acc/Train Acc (All)', local_full_acc, local_cnt)
+                    loss: torch.Tensor = loss_func(pred_y, batch_y)
+                loss.backward()
+                opt.step()
+                local_correct_num, total_num, all_classes = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
+                total_loss          += loss
+                train_correct_num   += local_correct_num
+                train_full_num      += total_num
+                train_cnt           += 1
+                if args.train_verbose > 0 and i % args.train_verbose == 0:
+                    local_acc = local_correct_num   / total_num
+                    local_full_acc = all_classes    / (OUTPUT_DIM * args.batch_size)
+                    writer.add_scalar('Loss/Train Loss', loss, train_cnt)
+                    writer.add_scalar('Acc/Train Acc', local_acc, train_cnt)
+                    writer.add_scalar('Acc/Train Acc (All)', local_full_acc, train_cnt)
 
-                print(f"Traning Epoch: {ep:4d} / {full_epoch:4d}\
-                    \tbatch: {i:3d} / {loader_len:3d}\
-                    \ttrain loss: {loss.item():.5f}\
-                    \ttrain acc: {local_acc:.4f}\
-                    \ttrain acc full: {local_full_acc:.4f}"
-                )
+                    print(f"Traning Epoch: {ep:4d} / {full_epoch:4d}\
+                        \tloader: {loader_id + 1} / {num_of_loader}\
+                        \tbatch: {i:3d} / {local_loader_len:3d}\
+                        \ttrain loss: {loss.item():.5f}\
+                        \ttrain acc: {local_acc:.4f}\
+                        \ttrain acc full: {local_full_acc:.4f}"
+                    )
         opt, current_lr = lec_sch.update_opt_lr(ep, opt)
         vanilla_acc = train_correct_num / train_full_num
-        total_loss /= loader_len
+        total_loss /= loader_len_sum
 
         print(f"Traning Epoch (Pro): {ep:4d} / {full_epoch:4d}\ttrain loss: {total_loss.item():.5f}\ttrain acc: {vanilla_acc:.4f}\tlearing rate: {current_lr:.7f}")        
         writer.add_scalar('Loss/Train Avg Loss', total_loss, ep)
@@ -177,53 +193,54 @@ def train(train_kwargs):
 
 def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = False):
     args        = eval_kwargs['args']
-    testset     = eval_kwargs['test_set']   
+    testsets    = eval_kwargs['test_sets']   
     loss_func   = eval_kwargs['loss_func']
     model: SeqPredictor\
                 = eval_kwargs['model']   
 
-    test_loader = DataLoader(testset, args.test_batch_size, shuffle = False, num_workers = 2, drop_last = False)
+    test_loaders = [DataLoader(testset, args.test_batch_size, shuffle = False, num_workers = 2, drop_last = False) for testset in testsets]
     test_batches = args.test_batches if args.test_batches else len(test_loader)
 
-    target_pos_num = 0
-    pred_pos_num = 0
-    test_full_num = 0
-    total_loss = 0
+    target_pos_num  = 0
+    pred_pos_num    = 0
+    test_full_num   = 0
+    total_loss      = 0
 
     if resume:
         model.eval()
-    auc_results = []
+    num_of_dataset  = len(test_loaders)
+    auc_results     = []
     with torch.no_grad():
-        for i, (batch_x, batch_y) in enumerate(test_loader):
-            batch_x = batch_x.cuda()
-            batch_y = batch_y.cuda()
-            if i >= test_batches: break
-            if args.half_opt:
-                with autocast():
+        for test_loader in test_loaders:
+            for i, (batch_x, batch_y) in enumerate(test_loader):
+                batch_x = batch_x.cuda()
+                batch_y = batch_y.cuda()
+                if i >= test_batches: break
+                if args.half_opt:
+                    with autocast():
+                        pred_y = model.forward(batch_x)
+                        loss = loss_func(pred_y, batch_y)
+                else:
                     pred_y = model.forward(batch_x)
-                    loss = loss_func(pred_y, batch_y)
-            else:
-                pred_y = model.forward(batch_x)
-                loss: torch.Tensor = loss_func(pred_y, batch_y)
-            local_correct_num, batch_pos_num, full_num = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
-            target_pos_num += batch_pos_num
-            pred_pos_num += local_correct_num
-            total_loss += loss
-            test_full_num += full_num
-            if auc:
-                auroc = AUROC(task = 'binary', num_classes = 2)
-                auc_result = auroc(pred_y, batch_y.to(torch.int32)).item()
-                if auc_result < 1e-4:               # No positive samples in targets, true positive value should be meaningless
-                    continue
-                # if auc_result < 0.5:                # should not be close to 0.5
-                #     auc_result = 1. - auc_result
-                auc_results.append(auc_result)
+                    loss: torch.Tensor = loss_func(pred_y, batch_y)
+                local_correct_num, batch_pos_num, full_num = acc_calculate(pred_y.detach(), batch_y, args.pos_threshold)
+                target_pos_num  += batch_pos_num
+                pred_pos_num    += local_correct_num
+                total_loss      += loss
+                test_full_num   += full_num
+                if auc:
+                    auroc = AUROC(task = 'binary', num_classes = 2)
+                    auc_result = auroc(pred_y, batch_y.to(torch.int32)).item()
+                    if auc_result < 1e-4:               # No positive samples in targets, true positive value should be meaningless
+                        continue
+                    auc_results.append(auc_result)
     if resume:
         model.train()
-    total_loss /= test_batches
-    vanilla_acc = test_full_num / (test_batches * args.test_batch_size * OUTPUT_DIM)
+    tested_batch_num = test_batches * num_of_dataset
+    total_loss /= tested_batch_num
+    vanilla_acc = test_full_num / (tested_batch_num * args.test_batch_size * OUTPUT_DIM)
     vanilla_pos_acc = pred_pos_num / target_pos_num
-    print(f"Evaluating Epoch: {cur_epoch:4d}\ttest loss: {total_loss.item():.5f}\ttest acc: {vanilla_pos_acc:.4f}\ttest acc (All): {vanilla_acc:.4f}")    
+    print(f"Evaluating Epoch: {cur_epoch:4d}\ttest loss: {total_loss.item():.5f}\ttest acc: {vanilla_pos_acc:.4f}\ttest acc (All): {vanilla_acc:.4f}\tnum of dataset: {num_of_dataset}")    
     if use_writer:    
         eval_kwargs['writer'].add_scalar('Loss/Test Avg Loss', total_loss, cur_epoch)
         eval_kwargs['writer'].add_scalar('Acc/Test Avg Acc', vanilla_pos_acc, cur_epoch)
@@ -243,7 +260,7 @@ def eval(eval_kwargs, cur_epoch = 0, use_writer = True, resume = False, auc = Fa
         print(f"Average AUC: {mean_auroc}, std: {torch.std(auc_results)}, min: {torch.min(auc_results)}, max: {torch.max(auc_results)}")
 
 def main(context: dict):
-    if "train_set" in context:
+    if "train_sets" in context:
         print("Conv Predictor 1D training...")
         train(context)
     else:
