@@ -42,6 +42,7 @@ CUDA version: 11.x, personally I recommend 11.6 / 11.7 (since they are tested). 
 
 The structure of the code repo is as follows:
 
+(e) -- Executable file. (d) -- Directory (folder). (f) Script file.
 ```
 .
 ├── (d) logs/ --- tensorboard log storage (compulsory)
