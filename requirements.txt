@@ -2,7 +2,7 @@ einops==0.3.0
 matplotlib==3.3.3
 natsort==8.2.0
 numpy==1.19.5
-scikit-learn==0.24.2
+scikit-learn==1.0.1
 scipy==1.10.0
 tensorboard==2.10.0
 timm==0.6.12
